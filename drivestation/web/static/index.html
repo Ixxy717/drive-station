@@ -5,87 +5,155 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Drive Station</title>
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body { height: 100%; }
-  body {
-    background: #141414; color: #ddd;
-    font-family: "Segoe UI", system-ui, sans-serif;
-    padding: 20px; user-select: none;
+  /* Theme: instrumentation gray. One background, one text color.
+     Accent color appears ONLY on status strips, health verdicts,
+     progress, and the two action buttons. No radii, no shadows. */
+  :root {
+    --bg: #97999c;        /* page */
+    --panel: #aeb0b3;     /* tile body */
+    --panel-alt: #c2c4c6; /* zebra rows / secondary surfaces */
+    --line: #3a3c3f;      /* all borders */
+    --ink: #141414;       /* primary text */
+    --ink-dim: #45474a;   /* labels, secondary text */
+    --chrome: #34363a;    /* header strips */
+    --chrome-ink: #e6e6e6;
+    --st-neutral: #7e8083;
+    --st-active: #14589f; /* detection / checking */
+    --st-ok: #0d7a2f;     /* ready / passed */
+    --st-work: #c68a00;   /* wiping / verifying */
+    --st-alarm: #ac221b;  /* failed / error / health fail */
+    --st-warn: #8a5f00;   /* health warning text */
   }
+  * { box-sizing: border-box; margin: 0; padding: 0; border-radius: 0 !important; }
+  body {
+    background: var(--bg); color: var(--ink);
+    font-family: "Segoe UI", system-ui, sans-serif;
+    user-select: none;
+  }
+
+  /* ---- top bar ---- */
+  #topbar {
+    background: var(--chrome); color: var(--chrome-ink);
+    border-bottom: 1px solid var(--line);
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 8px 14px; font-size: 13px;
+  }
+  #topbar .title { font-weight: 800; letter-spacing: 1px; font-size: 15px; }
+  #topbar .counts span { margin-left: 14px; font-weight: 700; }
+  #topbar .counts .n { font-family: Consolas, monospace; }
+
+  /* ---- slot grid ---- */
   .groups {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 16px;
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    gap: 12px; padding: 12px;
   }
   @media (max-width: 1100px) { .groups { grid-template-columns: repeat(2, 1fr); } }
   .group h2 {
-    font-size: 14px; font-weight: 600; color: #777;
-    margin-bottom: 10px; text-transform: uppercase;
+    font-size: 12px; font-weight: 700; color: var(--ink-dim);
+    text-transform: uppercase; margin-bottom: 6px; letter-spacing: 1px;
   }
   .tile {
-    border-radius: 6px; padding: 16px; margin-bottom: 16px;
-    min-height: 190px; display: flex; flex-direction: column; gap: 4px;
+    background: var(--panel); border: 1px solid var(--line);
+    margin-bottom: 12px; display: flex; flex-direction: column;
+    min-height: 210px;
   }
-  .top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
-  .slot { font-size: 15px; font-weight: 800; }
-  .type { font-size: 12px; font-weight: 600; opacity: .65; }
-  .model { font-size: 18px; font-weight: 600; line-height: 1.25; }
-  .cap { font-size: 14px; opacity: .75; }
-  .health { font-size: 16px; font-weight: 800; margin-top: 6px; }
-  .warn { font-size: 13px; font-weight: 600; opacity: .9; }
-  .status { font-size: 32px; font-weight: 900; margin-top: auto; line-height: 1.1; }
-  .msg { font-size: 14px; font-weight: 600; margin-top: 2px; }
-
-  /* State = whole-tile color. Readable from across the bench. */
-  .tile.EMPTY { background: #1d1d1d; color: #4a4a4a; }
-  .tile.EMPTY .status { margin: auto; font-size: 24px; letter-spacing: 1px; }
-  .tile.EMPTY .slot { color: #5f5f5f; }
-
-  .tile.DETECTED, .tile.CHECKING { background: #12509e; color: #fff; }
-  .tile.DETECTED .status, .tile.CHECKING .status { animation: blink 1.1s step-end infinite; }
-  @keyframes blink { 50% { opacity: .35; } }
-
-  .tile.READY { background: #f1efe9; color: #151515; }
-  .tile.READY .health.GOOD { color: #156e2d; }
-  .tile.READY .health.WARNING { color: #8f5a00; }
-  .tile.READY .health.FAIL { color: #a91d15; }
-  .tile.READY .warn { color: #444; }
-
-  .tile.WIPING, .tile.VERIFYING { background: #dd9e00; color: #161616; }
-  .pct { font-size: 58px; font-weight: 900; line-height: 1; margin-top: 10px; }
-  .bar { height: 12px; background: rgba(0,0,0,.25); margin-top: 8px; }
-  .bar > div { height: 100%; background: #161616; transition: width .4s linear; }
-
-  .tile.PASSED { background: #1c7c38; color: #fff; }
-  .tile.FAILED, .tile.ERROR { background: #ab211a; color: #fff; }
-
-  .ask { font-size: 15px; font-weight: 800; margin-top: 10px; }
-  .buttons { display: flex; gap: 10px; margin-top: 8px; }
-  button {
-    flex: 1; height: 56px; font-size: 22px; font-weight: 900;
-    border: none; border-radius: 4px; cursor: pointer;
-    font-family: inherit;
+  .tilehead {
+    background: var(--chrome); color: var(--chrome-ink);
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 5px 10px; font-size: 14px; font-weight: 800;
+    border-bottom: 1px solid var(--line);
   }
-  .yes { background: #156e2d; color: #fff; }
-  .yes:active { background: #0e5220; }
-  .no { background: #c9c5bb; color: #222; }
-  .no:active { background: #b3afa5; }
+  .tilehead .iface { font-size: 11px; font-weight: 700; opacity: .8; }
 
+  .rows { padding: 6px 0; }
+  .row {
+    display: grid; grid-template-columns: 74px 1fr;
+    padding: 3px 10px; font-size: 13px; line-height: 1.35;
+  }
+  .row:nth-child(even) { background: var(--panel-alt); }
+  .row .k {
+    color: var(--ink-dim); font-size: 11px; font-weight: 700;
+    text-transform: uppercase; align-self: baseline; padding-top: 1px;
+  }
+  .row .v { font-weight: 600; overflow-wrap: anywhere; }
+  .row .v.mono { font-family: Consolas, monospace; font-weight: 400; }
+  .v.h-GOOD { color: var(--st-ok); font-weight: 800; }
+  .v.h-WARNING { color: var(--st-warn); font-weight: 800; }
+  .v.h-FAIL { color: var(--st-alarm); font-weight: 800; }
+
+  .nodevice {
+    flex: 1; display: flex; align-items: center; justify-content: center;
+    color: var(--ink-dim); font-size: 13px; font-weight: 700;
+    letter-spacing: 2px;
+  }
+
+  /* ---- progress ---- */
+  .prog { padding: 4px 10px 8px; }
+  .prog .pctline {
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-size: 12px; font-weight: 700; color: var(--ink-dim);
+  }
+  .prog .pct { font-size: 26px; font-weight: 800; color: var(--ink); font-family: Consolas, monospace; }
+  .prog .bar { height: 14px; border: 1px solid var(--line); background: var(--panel-alt); }
+  .prog .bar > div { height: 100%; background: var(--st-work); transition: width .4s linear; }
+
+  /* ---- status strip (the only large color surface) ---- */
+  .strip {
+    margin-top: auto; border-top: 1px solid var(--line);
+    padding: 7px 10px; color: #fff;
+  }
+  .strip .word { font-size: 21px; font-weight: 900; letter-spacing: 1px; }
+  .strip .note { font-size: 12px; font-weight: 600; margin-top: 1px; }
+  .strip.EMPTY { background: var(--st-neutral); }
+  .strip.DETECTED, .strip.CHECKING { background: var(--st-active); }
+  .strip.CHECKING .word { animation: blink 1.1s step-end infinite; }
+  @keyframes blink { 50% { opacity: .4; } }
+  /* READY is a decision point, not a success — keep it neutral so green
+     strictly means "wiped and verified" and never appears on a bad drive. */
+  .strip.READY { background: var(--panel-alt); color: var(--ink); }
+  .strip.PASSED { background: var(--st-ok); }
+  .strip.WIPING, .strip.VERIFYING { background: var(--st-work); color: var(--ink); }
+  .strip.FAILED, .strip.ERROR { background: var(--st-alarm); }
+
+  /* ---- operator action ---- */
+  .ask {
+    padding: 8px 10px; border-top: 1px solid var(--line);
+    background: var(--panel-alt);
+  }
+  .ask .q { font-size: 13px; font-weight: 800; margin-bottom: 6px; }
+  .buttons { display: flex; gap: 8px; }
+  button.act {
+    flex: 1; height: 52px; font-size: 20px; font-weight: 900;
+    border: 1px solid var(--line); cursor: pointer; font-family: inherit;
+  }
+  .yes { background: var(--st-ok); color: #fff; }
+  .yes:active { background: #085c21; }
+  .no { background: var(--panel); color: var(--ink); }
+  .no:active { background: #98999c; }
+
+  /* ---- simulator panel ---- */
   #simpanel {
-    margin-top: 26px; padding-top: 12px; border-top: 1px solid #2a2a2a;
-    font-family: Consolas, monospace; font-size: 12px; color: #666;
+    margin: 0 12px 12px; border: 1px dashed var(--line);
+    padding: 8px 10px; font-family: Consolas, monospace; font-size: 12px;
+    color: var(--ink-dim); display: none;
   }
-  #simpanel .row { display: flex; gap: 6px; align-items: center; margin-top: 5px; }
-  #simpanel b { width: 64px; color: #888; }
+  #simpanel .row2 { display: flex; gap: 6px; align-items: center; margin-top: 4px; }
+  #simpanel b { width: 66px; color: var(--ink); }
   #simpanel select, #simpanel button {
-    all: revert; font-family: Consolas, monospace; font-size: 12px;
+    font-family: Consolas, monospace; font-size: 12px;
+    border: 1px solid var(--line); background: var(--panel-alt);
+    color: var(--ink); padding: 2px 8px; cursor: pointer;
   }
 </style>
 </head>
 <body>
+  <div id="topbar">
+    <span class="title">DRIVE STATION</span>
+    <span class="counts" id="counts"></span>
+  </div>
   <div class="groups" id="groups"></div>
-  <div id="simpanel" style="display:none">
-    SIMULATOR — dev only, hidden on the real station
+  <div id="simpanel">
+    SIMULATION CONTROL — DEV BUILD ONLY
     <div id="simrows"></div>
   </div>
 
@@ -95,6 +163,8 @@ const PRESETS = ["healthy_nvme","worn_nvme","failing_nvme","healthy_ssd",
   "yank_mid_wipe","wipe_rejected","verify_fail","wont_identify"];
 
 const TYPE_LABEL = { NVME: "NVMe", SATA_SSD: "SATA SSD", SATA_HDD: "SATA HDD" };
+const STATUS_ORDER = ["EMPTY","CHECKING","READY","WIPING","VERIFYING",
+                      "PASSED","FAILED","ERROR"];
 
 async function post(url, body) {
   await fetch(url, {method: "POST",
@@ -102,48 +172,69 @@ async function post(url, body) {
     body: body ? JSON.stringify(body) : null});
 }
 
+function row(k, v, cls = "") {
+  return `<div class="row"><span class="k">${k}</span><span class="v ${cls}">${v}</span></div>`;
+}
+
 function tileHTML(s) {
   const d = s.drive, h = s.health;
-  let inner = `<div class="top"><span class="slot">${s.slot_id}</span>` +
-    (d ? `<span class="type">${TYPE_LABEL[d.drive_type] ?? ""}</span>` : "") +
-    `</div>`;
+  let body = "";
 
-  if (s.status === "EMPTY") {
-    return `<div class="tile EMPTY">${inner}<div class="status">EMPTY</div></div>`;
-  }
-
-  if (d) inner += `<div class="model">${d.manufacturer} ${d.model}</div>
-                   <div class="cap">${d.capacity}</div>`;
-
-  if (h && s.status === "READY") {
-    const pct = h.percent === null ? "" : `HEALTH ${h.percent}% — `;
-    inner += `<div class="health ${h.verdict}">${pct}${h.verdict}</div>`;
-    if (h.warnings.length) inner += `<div class="warn">${h.warnings.join(" · ")}</div>`;
+  if (!d && s.status === "EMPTY") {
+    body = `<div class="nodevice">NO DEVICE</div>`;
+  } else if (d) {
+    body = `<div class="rows">`;
+    body += row("Model", `${d.manufacturer} ${d.model}`);
+    body += row("S/N", d.serial, "mono");
+    body += row("Capacity", `${d.capacity} · ${TYPE_LABEL[d.drive_type] ?? d.drive_type}`);
+    if (h) {
+      const pct = h.percent === null ? "" : `${h.percent}% `;
+      body += row("Health", `${pct}${h.verdict}`, `h-${h.verdict}`);
+      if (h.warnings.length) body += row("Flags", h.warnings.join(" · "));
+    }
+    if (s.wipe_method && s.status !== "READY") {
+      body += row("Method", s.wipe_method.replaceAll("_", " "), "mono");
+    }
+    body += `</div>`;
+  } else if (s.status === "DETECTED" || s.status === "CHECKING") {
+    body = `<div class="nodevice">IDENTIFYING…</div>`;
+  } else {
+    body = `<div class="nodevice">NO DEVICE DATA</div>`;
   }
 
   if (s.status === "WIPING" || s.status === "VERIFYING") {
     const pct = Math.round(s.progress * 100);
-    inner += `<div class="pct">${pct}%</div>
-              <div class="bar"><div style="width:${pct}%"></div></div>`;
-  }
-
-  inner += `<div class="status">${s.status}</div>`;
-  if (s.message) inner += `<div class="msg">${s.message}</div>`;
-
-  if (s.status === "READY" && s.awaiting_confirm) {
-    inner += `<div class="ask">WIPE THIS DRIVE?</div>
-      <div class="buttons">
-        <button class="yes" onclick="post('/api/slots/${s.slot_id}/wipe')">YES</button>
-        <button class="no" onclick="post('/api/slots/${s.slot_id}/decline')">NO</button>
+    body += `<div class="prog">
+        <div class="pctline"><span>${s.status === "WIPING" ? "WIPE PASS" : "READ-BACK VERIFY"}</span>
+        <span class="pct">${pct}%</span></div>
+        <div class="bar"><div style="width:${pct}%"></div></div>
       </div>`;
   }
-  return `<div class="tile ${s.status}">${inner}</div>`;
+
+  let strip = `<div class="strip ${s.status}"><span class="word">${s.status}</span>`;
+  if (s.message) strip += `<div class="note">${s.message}</div>`;
+  strip += `</div>`;
+
+  let ask = "";
+  if (s.status === "READY" && s.awaiting_confirm) {
+    ask = `<div class="ask"><div class="q">SECURE WIPE THIS DRIVE?</div>
+      <div class="buttons">
+        <button class="act yes" onclick="post('/api/slots/${s.slot_id}/wipe')">WIPE</button>
+        <button class="act no" onclick="post('/api/slots/${s.slot_id}/decline')">SKIP</button>
+      </div></div>`;
+  }
+
+  return `<div class="tile">
+      <div class="tilehead"><span>${s.slot_id}</span>
+        <span class="iface">${d ? (TYPE_LABEL[d.drive_type] ?? "") : ""}</span></div>
+      ${body}${strip}${ask}
+    </div>`;
 }
 
 let simBuilt = false;
 function buildSim(slots) {
   document.getElementById("simrows").innerHTML = slots.map(s => `
-    <div class="row">
+    <div class="row2">
       <b>${s.slot_id}</b>
       <select id="preset-${s.slot_id}">
         ${PRESETS.map(p => `<option>${p}</option>`).join("")}
@@ -153,6 +244,15 @@ function buildSim(slots) {
     </div>`).join("");
   document.getElementById("simpanel").style.display = "block";
   simBuilt = true;
+}
+
+function renderCounts(slots) {
+  const c = {};
+  for (const s of slots) c[s.status] = (c[s.status] ?? 0) + 1;
+  document.getElementById("counts").innerHTML = STATUS_ORDER
+    .filter(st => c[st])
+    .map(st => `<span>${st} <span class="n">${c[st]}</span></span>`)
+    .join("");
 }
 
 async function refresh() {
@@ -165,6 +265,7 @@ async function refresh() {
       Object.entries(groups).map(([name, slots]) =>
         `<div class="group"><h2>${name}</h2>${slots.map(tileHTML).join("")}</div>`
       ).join("");
+    renderCounts(data.slots);
     if (data.sim_mode && !simBuilt) buildSim(data.slots);
   } catch (e) { /* server restarting; keep polling */ }
 }

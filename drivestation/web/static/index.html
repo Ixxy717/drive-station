@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Drive Station</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0e1116; color: #e6e9ef;
+    font-family: "Segoe UI", system-ui, sans-serif;
+    padding: 18px; user-select: none;
+  }
+  h1 { font-size: 20px; letter-spacing: 2px; color: #8a93a5; margin-bottom: 14px; }
+  .groups { display: flex; flex-wrap: wrap; gap: 22px; }
+  .group { flex: 1 1 260px; min-width: 260px; }
+  .group h2 {
+    font-size: 15px; letter-spacing: 3px; color: #667089;
+    border-bottom: 2px solid #232a36; padding-bottom: 6px; margin-bottom: 12px;
+  }
+  .tile {
+    background: #171c25; border: 2px solid #232a36; border-radius: 14px;
+    padding: 16px; margin-bottom: 14px; min-height: 150px;
+    display: flex; flex-direction: column; gap: 6px;
+    transition: border-color .3s;
+  }
+  .slot-name { font-size: 17px; font-weight: 700; letter-spacing: 1px; color: #aab3c5; }
+  .model { font-size: 16px; }
+  .capacity { color: #8a93a5; font-size: 14px; }
+  .health { font-size: 16px; font-weight: 600; }
+  .status {
+    font-size: 26px; font-weight: 800; letter-spacing: 2px; margin-top: auto;
+  }
+  .msg { font-size: 14px; color: #c6cddb; }
+  .tile.EMPTY .status { color: #3d4657; }
+  .tile.DETECTED, .tile.CHECKING { border-color: #2e6bd6; }
+  .tile.DETECTED .status, .tile.CHECKING .status { color: #5b93f5; animation: pulse 1.2s infinite; }
+  .tile.READY { border-color: #2f9e5f; }
+  .tile.READY .status { color: #43d97f; }
+  .tile.READY.healthfail { border-color: #d64545; }
+  .tile.WIPING { border-color: #d69a2e; }
+  .tile.WIPING .status { color: #f2b13d; }
+  .tile.VERIFYING { border-color: #9a5bd6; }
+  .tile.VERIFYING .status { color: #bb86f5; }
+  .tile.PASSED { border-color: #2f9e5f; background: #12241a; }
+  .tile.PASSED .status { color: #43d97f; }
+  .tile.FAILED, .tile.ERROR { border-color: #d64545; background: #251214; }
+  .tile.FAILED .status, .tile.ERROR .status { color: #ff5c5c; }
+  .verdict-GOOD { color: #43d97f; }
+  .verdict-WARNING { color: #f2b13d; }
+  .verdict-FAIL { color: #ff5c5c; }
+  @keyframes pulse { 50% { opacity: .45; } }
+  .bar { height: 14px; background: #232a36; border-radius: 7px; overflow: hidden; }
+  .bar > div { height: 100%; background: #f2b13d; transition: width .4s; }
+  .VERIFYING .bar > div { background: #bb86f5; }
+  .pct { font-size: 20px; font-weight: 700; }
+  .buttons { display: flex; gap: 10px; margin-top: 8px; }
+  button {
+    flex: 1; font-size: 20px; font-weight: 800; padding: 14px 0;
+    border: none; border-radius: 10px; cursor: pointer; letter-spacing: 1px;
+  }
+  .yes { background: #1f7a45; color: #fff; }
+  .yes:hover { background: #27995a; }
+  .no { background: #3a4354; color: #dfe4ee; }
+  .no:hover { background: #4a5568; }
+  .wipeq { font-size: 15px; font-weight: 700; color: #f2b13d; margin-top: 6px; }
+  #simpanel {
+    margin-top: 30px; padding: 14px; border: 1px dashed #3a4354;
+    border-radius: 10px; color: #8a93a5; font-size: 13px;
+  }
+  #simpanel h3 { margin-bottom: 8px; font-size: 13px; letter-spacing: 2px; }
+  #simpanel .row { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; flex-wrap: wrap; }
+  #simpanel select, #simpanel button {
+    font-size: 13px; padding: 5px 10px; border-radius: 6px; flex: none;
+    background: #232a36; color: #dfe4ee; border: 1px solid #3a4354; cursor: pointer;
+  }
+</style>
+</head>
+<body>
+  <h1>DRIVE STATION</h1>
+  <div class="groups" id="groups"></div>
+  <div id="simpanel" style="display:none">
+    <h3>SIMULATOR (dev only — not shown on the real station)</h3>
+    <div id="simrows"></div>
+  </div>
+
+<script>
+const PRESETS = ["healthy_nvme","worn_nvme","failing_nvme","healthy_ssd",
+  "smart_fail_ssd","healthy_hdd","warning_hdd","failing_hdd",
+  "yank_mid_wipe","wipe_rejected","verify_fail","wont_identify"];
+
+async function post(url, body) {
+  await fetch(url, {method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: body ? JSON.stringify(body) : null});
+}
+
+function tileHTML(s) {
+  const d = s.drive, h = s.health;
+  let inner = `<div class="slot-name">${s.slot_id}</div>`;
+  if (d) {
+    inner += `<div class="model">${d.manufacturer} ${d.model}</div>
+              <div class="capacity">${d.capacity} &middot; ${d.drive_type.replace("_"," ")}</div>`;
+  }
+  if (h && (s.status === "READY" || s.status === "PASSED")) {
+    const pct = h.percent === null ? "" : `Health ${h.percent}% `;
+    inner += `<div class="health verdict-${h.verdict}">${pct}${h.verdict}</div>`;
+    if (h.warnings.length) inner += `<div class="msg">${h.warnings.join(", ")}</div>`;
+  }
+  if (s.status === "WIPING" || s.status === "VERIFYING") {
+    const pct = Math.round(s.progress * 100);
+    inner += `<div class="pct">${pct}%</div>
+              <div class="bar"><div style="width:${pct}%"></div></div>`;
+  }
+  inner += `<div class="status">${s.status}</div>`;
+  if (s.message) inner += `<div class="msg">${s.message}</div>`;
+  if (s.status === "READY" && s.awaiting_confirm) {
+    inner += `<div class="wipeq">WIPE THIS DRIVE?</div>
+      <div class="buttons">
+        <button class="yes" onclick="post('/api/slots/${s.slot_id}/wipe')">YES</button>
+        <button class="no" onclick="post('/api/slots/${s.slot_id}/decline')">NO</button>
+      </div>`;
+  }
+  const failHealth = h && h.verdict === "FAIL" ? " healthfail" : "";
+  return `<div class="tile ${s.status}${failHealth}">${inner}</div>`;
+}
+
+let simBuilt = false;
+function buildSim(slots) {
+  const rows = document.getElementById("simrows");
+  rows.innerHTML = slots.map(s => `
+    <div class="row">
+      <b style="width:70px">${s.slot_id}</b>
+      <select id="preset-${s.slot_id}">
+        ${PRESETS.map(p => `<option>${p}</option>`).join("")}
+      </select>
+      <button onclick="post('/api/sim/insert',{slot:'${s.slot_id}',preset:document.getElementById('preset-${s.slot_id}').value})">insert</button>
+      <button onclick="post('/api/sim/remove',{slot:'${s.slot_id}'})">remove / yank</button>
+    </div>`).join("");
+  document.getElementById("simpanel").style.display = "block";
+  simBuilt = true;
+}
+
+async function refresh() {
+  try {
+    const res = await fetch("/api/state");
+    const data = await res.json();
+    const groups = {};
+    for (const s of data.slots) (groups[s.group] ??= []).push(s);
+    document.getElementById("groups").innerHTML =
+      Object.entries(groups).map(([name, slots]) =>
+        `<div class="group"><h2>${name}</h2>${slots.map(tileHTML).join("")}</div>`
+      ).join("");
+    if (data.sim_mode && !simBuilt) buildSim(data.slots);
+  } catch (e) { /* server restarting; keep polling */ }
+}
+refresh();
+setInterval(refresh, 700);
+</script>
+</body>
+</html>

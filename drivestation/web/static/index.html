@@ -36,6 +36,7 @@
     background: var(--topbar); color: #e8e9ea;
     display: flex; justify-content: space-between; align-items: center;
     padding: 0 20px; height: 42px;
+    position: sticky; top: 0; z-index: 10;
   }
   #topbar .title { font-size: 13px; font-weight: 800; letter-spacing: 3px; }
   #counts { display: flex; gap: 18px; font-size: 12px; font-weight: 600; }
@@ -69,9 +70,12 @@
   .group h2 .cnt { color: var(--muted); font-weight: 600; letter-spacing: 0; }
 
   /* ---------- slot cards ---------- */
+  /* Fixed footprint: a slot card never changes size, so no state change can
+     shift the layout. Every slot is bound to a permanent screen position. */
   .tile {
     background: var(--card); border: 1px solid var(--hair);
-    display: flex; flex-direction: column; min-height: 208px;
+    display: flex; flex-direction: column;
+    height: 272px; overflow: hidden;
   }
   .tile + .tile { margin-top: 12px; }
   .tilebar {
@@ -91,7 +95,13 @@
     font-size: 10px; font-weight: 700; letter-spacing: 1.2px;
     color: var(--muted); text-transform: uppercase;
   }
-  .row .v { font-size: 13px; font-weight: 500; overflow-wrap: anywhere; }
+  .row .v { font-size: 13px; font-weight: 500; overflow-wrap: anywhere; min-width: 0; }
+  /* Flags stay on one line (full detail lives in the job log) so row count,
+     and therefore card layout, is deterministic. */
+  .row .v.flags {
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    overflow-wrap: normal;
+  }
   .row .v.model { font-size: 14px; font-weight: 650; }
   .row .v.mono { font-family: Consolas, monospace; font-size: 12.5px; }
   .v.h-GOOD { color: var(--ok); font-weight: 750; }
@@ -210,7 +220,7 @@ function tileHTML(s) {
     if (h) {
       const pct = h.percent === null ? "" : `${h.percent}% `;
       body += row("Health", `${pct}${h.verdict}`, `h-${h.verdict}`);
-      if (h.warnings.length) body += row("Flags", h.warnings.join(" · "));
+      if (h.warnings.length) body += row("Flags", h.warnings.join(" · "), "flags");
     }
     if (s.wipe_method && s.status !== "READY") {
       body += row("Method", s.wipe_method.replaceAll("_", " "), "mono");

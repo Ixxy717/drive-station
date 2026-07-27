@@ -5,182 +5,188 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Drive Station</title>
 <style>
-  /* Modern industrial console. Mid-tone canvas, light instrument cards,
-     hairline separation, typographic hierarchy. Color appears only as
-     state: green=verified wiped, amber=operation running, red=fault,
-     blue=identifying, none=idle. Square geometry throughout. */
+  /* Graphite console frame + light instrument cards.
+     Square geometry. Fixed card footprints. Color = state only:
+     green = verified wiped, amber = running, red = fault, blue = identifying.
+     Empty slots are ghost outlines so occupied slots carry all the weight. */
   :root {
-    --canvas: #aaadb1;
-    --section: #b9bcbf;
-    --card: #e9eaeb;
-    --card-dim: #dcdedf;
-    --hair: #8f9296;
-    --hair-soft: #c9cbcd;
-    --ink: #1d1f21;
-    --muted: #63666b;
-    --topbar: #26282b;
-    --ok: #177d3b;
-    --work: #cc9200;
-    --alarm: #b02a21;
-    --active: #2a63a8;
+    --canvas: #34373d;
+    --section: #3d4046;
+    --hair-dk: #4c5057;
+    --ghost: #61656d;
+    --card: #f1f1ef;
+    --card-line: #d9d9d5;
+    --ink: #1b1d20;
+    --muted: #75787f;
+    --topbar: #232529;
+    --ok: #178040;
+    --work: #d19200;
+    --alarm: #c03328;
+    --active: #2f6fc4;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; border-radius: 0 !important; }
   body {
     background: var(--canvas); color: var(--ink);
-    font-family: "Segoe UI", system-ui, sans-serif;
+    font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
     user-select: none;
   }
+  .num { font-family: "Cascadia Mono", Consolas, monospace; font-variant-numeric: tabular-nums; }
 
   /* ---------- top bar ---------- */
   #topbar {
-    background: var(--topbar); color: #e8e9ea;
+    background: var(--topbar); color: #eceded;
     display: flex; justify-content: space-between; align-items: center;
-    padding: 0 20px; height: 42px;
+    padding: 0 22px; height: 46px;
     position: sticky; top: 0; z-index: 10;
+    border-bottom: 1px solid #000;
   }
-  #topbar .title { font-size: 13px; font-weight: 800; letter-spacing: 3px; }
-  #counts { display: flex; gap: 18px; font-size: 12px; font-weight: 600; }
-  #counts .c { display: flex; align-items: center; gap: 6px; color: #c3c5c8; }
-  #counts .n { color: #fff; font-weight: 800; font-family: Consolas, monospace; }
-  #counts .sq { width: 9px; height: 9px; display: inline-block; }
+  #topbar .title { font-size: 13px; font-weight: 700; letter-spacing: 3.5px; }
+  #topbar .right { display: flex; align-items: center; gap: 26px; }
+  #counts { display: flex; gap: 20px; font-size: 12px; font-weight: 600; }
+  #counts .c { display: flex; align-items: center; gap: 7px; color: #a6a9af; }
+  #counts .n { color: #fff; font-weight: 700; }
+  #counts .sq { width: 8px; height: 8px; display: inline-block; }
   .sq.READY    { background: #eceded; }
   .sq.CHECKING, .sq.DETECTED { background: var(--active); }
   .sq.WIPING, .sq.VERIFYING  { background: var(--work); }
-  .sq.PASSED   { background: var(--ok); }
-  .sq.FAILED, .sq.ERROR { background: var(--alarm); }
-  .sq.EMPTY    { background: #55585c; }
+  .sq.PASSED   { background: #1da04f; }
+  .sq.FAILED, .sq.ERROR { background: #e04a3d; }
+  .sq.EMPTY    { background: var(--ghost); }
+  #clock { font-size: 13px; color: #a6a9af; letter-spacing: .5px; }
 
   /* ---------- dock sections ---------- */
   #groups {
     display: grid; grid-template-columns: repeat(4, 1fr);
-    gap: 18px; padding: 18px 20px;
+    gap: 16px; padding: 18px 22px;
   }
   @media (max-width: 1150px) { #groups { grid-template-columns: repeat(2, 1fr); } }
-  .group {
-    background: var(--section); border: 1px solid var(--hair);
-    padding: 12px;
-  }
+  .group { background: var(--section); border: 1px solid var(--hair-dk); padding: 14px; }
   .group h2 {
     display: flex; justify-content: space-between; align-items: baseline;
     font-size: 11px; font-weight: 700; letter-spacing: 2px;
-    color: #3f4246; text-transform: uppercase;
-    padding-bottom: 9px; margin-bottom: 12px;
-    border-bottom: 1px solid var(--hair);
+    color: #cdd0d5; text-transform: uppercase;
+    padding-bottom: 10px; margin-bottom: 14px;
+    border-bottom: 1px solid var(--hair-dk);
   }
-  .group h2 .cnt { color: var(--muted); font-weight: 600; letter-spacing: 0; }
+  .group h2 .cnt { color: #83878e; font-weight: 600; letter-spacing: .5px; }
 
-  /* ---------- slot cards ---------- */
-  /* Fixed footprint: a slot card never changes size, so no state change can
-     shift the layout. Every slot is bound to a permanent screen position. */
+  /* ---------- slot cards: fixed footprint, never shifts ---------- */
   .tile {
-    background: var(--card); border: 1px solid var(--hair);
     display: flex; flex-direction: column;
-    height: 272px; overflow: hidden;
+    height: 282px; overflow: hidden;
   }
-  .tile + .tile { margin-top: 12px; }
+  .tile + .tile { margin-top: 14px; }
+  .tile.solid { background: var(--card); border: 1px solid #101113; }
+  .tile.ghost { background: transparent; border: 1px dashed var(--ghost); color: #8d9199; }
+
   .tilebar {
-    display: flex; justify-content: space-between; align-items: baseline;
-    padding: 9px 14px 8px;
-    border-bottom: 1px solid var(--hair-soft);
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 10px 14px 9px;
   }
-  .tilebar .id { font-size: 13px; font-weight: 800; letter-spacing: 1px; }
+  .solid .tilebar { border-bottom: 1px solid var(--card-line); }
+  .tilebar .id { font-size: 14px; font-weight: 800; letter-spacing: .8px; }
   .tilebar .iface {
     font-size: 10px; font-weight: 700; letter-spacing: 1px;
-    color: var(--muted); text-transform: uppercase;
+    color: var(--muted); border: 1px solid var(--card-line);
+    padding: 2px 7px; text-transform: uppercase;
   }
 
-  .data { padding: 11px 14px; display: flex; flex-direction: column; gap: 7px; }
-  .row { display: grid; grid-template-columns: 78px 1fr; align-items: baseline; }
+  .data { padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+  .row { display: grid; grid-template-columns: 76px 1fr; align-items: baseline; }
   .row .k {
-    font-size: 10px; font-weight: 700; letter-spacing: 1.2px;
+    font-size: 10.5px; font-weight: 600; letter-spacing: .8px;
     color: var(--muted); text-transform: uppercase;
   }
-  .row .v { font-size: 13px; font-weight: 500; overflow-wrap: anywhere; min-width: 0; }
-  /* Flags stay on one line (full detail lives in the job log) so row count,
-     and therefore card layout, is deterministic. */
+  .row .v { font-size: 13.5px; font-weight: 500; overflow-wrap: anywhere; min-width: 0; }
+  .row .v.model { font-weight: 700; }
+  .row .v.mono { font-family: "Cascadia Mono", Consolas, monospace; font-size: 12.5px; }
   .row .v.flags {
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    overflow-wrap: normal;
+    overflow-wrap: normal; font-size: 12.5px;
   }
-  .row .v.model { font-size: 14px; font-weight: 650; }
-  .row .v.mono { font-family: Consolas, monospace; font-size: 12.5px; }
-  .v.h-GOOD { color: var(--ok); font-weight: 750; }
-  .v.h-WARNING { color: #8a5f00; font-weight: 750; }
-  .v.h-FAIL { color: var(--alarm); font-weight: 750; }
+  .v.h-GOOD { color: var(--ok); font-weight: 700; }
+  .v.h-WARNING { color: #96660a; font-weight: 700; }
+  .v.h-FAIL { color: var(--alarm); font-weight: 700; }
 
   .nodevice {
     flex: 1; display: flex; align-items: center; justify-content: center;
-    color: #85888c; font-size: 11px; font-weight: 700; letter-spacing: 2.5px;
+    font-size: 11px; font-weight: 700; letter-spacing: 3px;
   }
+  .solid .nodevice { color: var(--muted); }
 
   /* ---------- progress ---------- */
   .prog { padding: 2px 14px 12px; margin-top: auto; }
   .prog .lbl {
     display: flex; justify-content: space-between; align-items: baseline;
-    font-size: 10px; font-weight: 700; letter-spacing: 1.2px;
-    color: var(--muted); text-transform: uppercase; margin-bottom: 4px;
+    font-size: 10.5px; font-weight: 600; letter-spacing: .8px;
+    color: var(--muted); text-transform: uppercase; margin-bottom: 5px;
   }
-  .prog .pct { font-family: Consolas, monospace; font-size: 20px; font-weight: 700; color: var(--ink); }
-  .prog .bar { height: 8px; background: #c6c8ca; }
+  .prog .pct { font-size: 21px; font-weight: 700; color: var(--ink); }
+  .prog .bar { height: 6px; background: #dddddad9; }
   .prog .bar > div { height: 100%; background: var(--work); transition: width .4s linear; }
 
-  /* ---------- status band: the single color statement per card ---------- */
-  .foot { margin-top: auto; padding: 8px 14px 9px; border-top: 1px solid var(--hair-soft); }
-  .prog + .foot, .ask ~ .foot { margin-top: 0; }
-  .foot .word { font-size: 16px; font-weight: 800; letter-spacing: 1.5px; }
-  .foot .note { font-size: 12px; font-weight: 500; margin-top: 1px; }
-  .foot.EMPTY { color: #85888c; }
-  .foot.READY { color: var(--ink); background: var(--card-dim); }
-  .foot.DETECTED, .foot.CHECKING { background: var(--active); color: #fff; border-top-color: var(--active); }
+  /* ---------- status band ---------- */
+  .foot { margin-top: auto; padding: 9px 14px 10px; }
+  .prog + .foot { margin-top: 0; }
+  .foot .word { font-size: 15px; font-weight: 800; letter-spacing: 2px; }
+  .foot .note { font-size: 12px; font-weight: 500; margin-top: 2px; }
+  .ghost .foot { color: #8d9199; padding-bottom: 12px; }
+  .solid .foot { border-top: 1px solid var(--card-line); }
+  .foot.READY { background: #e4e4e1; }
+  .foot.DETECTED, .foot.CHECKING { background: var(--active); color: #fff; border-top: none; }
   .foot.CHECKING .word { animation: blink 1.2s step-end infinite; }
   @keyframes blink { 50% { opacity: .45; } }
-  .foot.WIPING, .foot.VERIFYING { background: var(--work); color: var(--ink); border-top-color: var(--work); }
-  .foot.PASSED { background: var(--ok); color: #fff; border-top-color: var(--ok); }
-  .foot.FAILED, .foot.ERROR { background: var(--alarm); color: #fff; border-top-color: var(--alarm); }
+  .foot.WIPING, .foot.VERIFYING { background: var(--work); color: #141414; border-top: none; }
+  .foot.PASSED { background: var(--ok); color: #fff; border-top: none; }
+  .foot.FAILED, .foot.ERROR { background: var(--alarm); color: #fff; border-top: none; }
 
   /* ---------- operator action ---------- */
-  .ask { padding: 10px 14px 12px; border-top: 1px solid var(--hair-soft); margin-top: auto; }
+  .ask { padding: 10px 14px 13px; border-top: 1px solid var(--card-line); margin-top: auto; }
   .ask .q {
-    font-size: 11px; font-weight: 700; letter-spacing: 1.2px;
+    font-size: 10.5px; font-weight: 600; letter-spacing: .8px;
     color: var(--muted); text-transform: uppercase; margin-bottom: 8px;
   }
-  .buttons { display: flex; gap: 8px; }
+  .buttons { display: flex; gap: 9px; }
   button.act {
-    flex: 1; height: 46px; font-size: 15px; font-weight: 700;
-    letter-spacing: 1.5px; cursor: pointer; font-family: inherit;
+    flex: 1; height: 46px; font-size: 14px; font-weight: 700;
+    letter-spacing: 2px; cursor: pointer; font-family: inherit;
     border: 1px solid transparent;
   }
   .yes { background: var(--ok); color: #fff; }
-  .yes:active { background: #0f5e2b; }
-  .no { background: transparent; color: var(--ink); border-color: var(--hair); }
-  .no:active { background: var(--card-dim); }
+  .yes:active { background: #0f5e2c; }
+  .no { background: transparent; color: var(--ink); border-color: #b9b9b4; }
+  .no:active { background: #e4e4e1; }
 
   /* ---------- simulator ---------- */
   #simpanel {
-    display: none; margin: 0 20px 18px;
-    background: var(--section); border: 1px solid var(--hair);
-    padding: 12px;
+    display: none; margin: 0 22px 18px;
+    background: var(--section); border: 1px solid var(--hair-dk);
+    padding: 14px; color: #cdd0d5;
   }
   #simpanel h2 {
     font-size: 11px; font-weight: 700; letter-spacing: 2px;
-    color: #3f4246; text-transform: uppercase;
-    padding-bottom: 9px; margin-bottom: 10px;
-    border-bottom: 1px solid var(--hair);
+    text-transform: uppercase;
+    padding-bottom: 10px; margin-bottom: 12px;
+    border-bottom: 1px solid var(--hair-dk);
   }
-  #simrows { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px 24px; }
+  #simrows { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px 26px; }
   #simpanel .srow { display: flex; gap: 8px; align-items: center; font-size: 12px; }
-  #simpanel b { width: 60px; font-family: Consolas, monospace; font-size: 12px; }
+  #simpanel b { width: 62px; font-family: "Cascadia Mono", Consolas, monospace; font-size: 12px; }
   #simpanel select, #simpanel button {
-    font-family: Consolas, monospace; font-size: 11.5px;
-    border: 1px solid var(--hair); background: var(--card);
-    color: var(--ink); padding: 3px 8px; cursor: pointer;
+    font-family: "Cascadia Mono", Consolas, monospace; font-size: 11.5px;
+    border: 1px solid var(--hair-dk); background: #2c2e33;
+    color: #cdd0d5; padding: 4px 9px; cursor: pointer;
   }
+  #simpanel button:active { background: #3d4046; }
 </style>
 </head>
 <body>
   <div id="topbar">
     <span class="title">DRIVE STATION</span>
-    <div id="counts"></div>
+    <div class="right">
+      <div id="counts"></div>
+      <span id="clock" class="num"></span>
+    </div>
   </div>
   <div id="groups"></div>
   <div id="simpanel">
@@ -208,11 +214,17 @@ function row(k, v, cls = "") {
 
 function tileHTML(s) {
   const d = s.drive, h = s.health;
-  let body = "";
 
-  if (!d && s.status === "EMPTY") {
-    body = `<div class="nodevice">NO DEVICE</div>`;
-  } else if (d) {
+  if (s.status === "EMPTY") {
+    return `<div class="tile ghost">
+        <div class="tilebar"><span class="id">${s.slot_id}</span></div>
+        <div class="nodevice">NO DEVICE</div>
+        <div class="foot"><span class="word">EMPTY</span></div>
+      </div>`;
+  }
+
+  let body = "";
+  if (d) {
     body = `<div class="data">`;
     body += row("Model", `${d.manufacturer} ${d.model}`, "model");
     body += row("Serial", d.serial, "mono");
@@ -220,7 +232,10 @@ function tileHTML(s) {
     if (h) {
       const pct = h.percent === null ? "" : `${h.percent}% `;
       body += row("Health", `${pct}${h.verdict}`, `h-${h.verdict}`);
-      if (h.warnings.length) body += row("Flags", h.warnings.join(" · "), "flags");
+      // Flags are hidden while a wipe runs: the progress block needs the
+      // space, and the warnings were already shown at the READY decision.
+      const busy = s.status === "WIPING" || s.status === "VERIFYING";
+      if (h.warnings.length && !busy) body += row("Flags", h.warnings.join(" · "), "flags");
     }
     if (s.wipe_method && s.status !== "READY") {
       body += row("Method", s.wipe_method.replaceAll("_", " "), "mono");
@@ -236,7 +251,7 @@ function tileHTML(s) {
     const pct = Math.round(s.progress * 100);
     body += `<div class="prog">
         <div class="lbl"><span>${s.status === "WIPING" ? "Wipe pass" : "Read-back verify"}</span>
-        <span class="pct">${pct}%</span></div>
+        <span class="pct num">${pct}%</span></div>
         <div class="bar"><div style="width:${pct}%"></div></div>
       </div>`;
   }
@@ -256,9 +271,9 @@ function tileHTML(s) {
       (s.message ? `<div class="note">${s.message}</div>` : "") + `</div>`;
   }
 
-  return `<div class="tile">
+  return `<div class="tile solid">
       <div class="tilebar"><span class="id">${s.slot_id}</span>
-        <span class="iface">${d ? (TYPE_LABEL[d.drive_type] ?? "") : ""}</span></div>
+        ${d ? `<span class="iface">${TYPE_LABEL[d.drive_type] ?? ""}</span>` : ""}</div>
       ${body}${ask}${foot}
     </div>`;
 }
@@ -283,9 +298,16 @@ function renderCounts(slots) {
   for (const s of slots) c[s.status] = (c[s.status] ?? 0) + 1;
   document.getElementById("counts").innerHTML = STATUS_ORDER
     .filter(st => c[st])
-    .map(st => `<span class="c"><span class="sq ${st}"></span>${st} <span class="n">${c[st]}</span></span>`)
+    .map(st => `<span class="c"><span class="sq ${st}"></span>${st} <span class="n num">${c[st]}</span></span>`)
     .join("");
 }
+
+function tick() {
+  const now = new Date();
+  document.getElementById("clock").textContent =
+    now.toLocaleTimeString([], {hour: "2-digit", minute: "2-digit", second: "2-digit"});
+}
+setInterval(tick, 1000); tick();
 
 async function refresh() {
   try {

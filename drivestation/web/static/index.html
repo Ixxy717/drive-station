@@ -5,155 +5,176 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Drive Station</title>
 <style>
-  /* Theme: instrumentation gray. One background, one text color.
-     Accent color appears ONLY on status strips, health verdicts,
-     progress, and the two action buttons. No radii, no shadows. */
+  /* Modern industrial console. Mid-tone canvas, light instrument cards,
+     hairline separation, typographic hierarchy. Color appears only as
+     state: green=verified wiped, amber=operation running, red=fault,
+     blue=identifying, none=idle. Square geometry throughout. */
   :root {
-    --bg: #97999c;        /* page */
-    --panel: #aeb0b3;     /* tile body */
-    --panel-alt: #c2c4c6; /* zebra rows / secondary surfaces */
-    --line: #3a3c3f;      /* all borders */
-    --ink: #141414;       /* primary text */
-    --ink-dim: #45474a;   /* labels, secondary text */
-    --chrome: #34363a;    /* header strips */
-    --chrome-ink: #e6e6e6;
-    --st-neutral: #7e8083;
-    --st-active: #14589f; /* detection / checking */
-    --st-ok: #0d7a2f;     /* ready / passed */
-    --st-work: #c68a00;   /* wiping / verifying */
-    --st-alarm: #ac221b;  /* failed / error / health fail */
-    --st-warn: #8a5f00;   /* health warning text */
+    --canvas: #aaadb1;
+    --section: #b9bcbf;
+    --card: #e9eaeb;
+    --card-dim: #dcdedf;
+    --hair: #8f9296;
+    --hair-soft: #c9cbcd;
+    --ink: #1d1f21;
+    --muted: #63666b;
+    --topbar: #26282b;
+    --ok: #177d3b;
+    --work: #cc9200;
+    --alarm: #b02a21;
+    --active: #2a63a8;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; border-radius: 0 !important; }
   body {
-    background: var(--bg); color: var(--ink);
+    background: var(--canvas); color: var(--ink);
     font-family: "Segoe UI", system-ui, sans-serif;
     user-select: none;
   }
 
-  /* ---- top bar ---- */
+  /* ---------- top bar ---------- */
   #topbar {
-    background: var(--chrome); color: var(--chrome-ink);
-    border-bottom: 1px solid var(--line);
+    background: var(--topbar); color: #e8e9ea;
     display: flex; justify-content: space-between; align-items: center;
-    padding: 8px 14px; font-size: 13px;
+    padding: 0 20px; height: 42px;
   }
-  #topbar .title { font-weight: 800; letter-spacing: 1px; font-size: 15px; }
-  #topbar .counts span { margin-left: 14px; font-weight: 700; }
-  #topbar .counts .n { font-family: Consolas, monospace; }
+  #topbar .title { font-size: 13px; font-weight: 800; letter-spacing: 3px; }
+  #counts { display: flex; gap: 18px; font-size: 12px; font-weight: 600; }
+  #counts .c { display: flex; align-items: center; gap: 6px; color: #c3c5c8; }
+  #counts .n { color: #fff; font-weight: 800; font-family: Consolas, monospace; }
+  #counts .sq { width: 9px; height: 9px; display: inline-block; }
+  .sq.READY    { background: #eceded; }
+  .sq.CHECKING, .sq.DETECTED { background: var(--active); }
+  .sq.WIPING, .sq.VERIFYING  { background: var(--work); }
+  .sq.PASSED   { background: var(--ok); }
+  .sq.FAILED, .sq.ERROR { background: var(--alarm); }
+  .sq.EMPTY    { background: #55585c; }
 
-  /* ---- slot grid ---- */
-  .groups {
+  /* ---------- dock sections ---------- */
+  #groups {
     display: grid; grid-template-columns: repeat(4, 1fr);
-    gap: 12px; padding: 12px;
+    gap: 18px; padding: 18px 20px;
   }
-  @media (max-width: 1100px) { .groups { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 1150px) { #groups { grid-template-columns: repeat(2, 1fr); } }
+  .group {
+    background: var(--section); border: 1px solid var(--hair);
+    padding: 12px;
+  }
   .group h2 {
-    font-size: 12px; font-weight: 700; color: var(--ink-dim);
-    text-transform: uppercase; margin-bottom: 6px; letter-spacing: 1px;
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-size: 11px; font-weight: 700; letter-spacing: 2px;
+    color: #3f4246; text-transform: uppercase;
+    padding-bottom: 9px; margin-bottom: 12px;
+    border-bottom: 1px solid var(--hair);
   }
-  .tile {
-    background: var(--panel); border: 1px solid var(--line);
-    margin-bottom: 12px; display: flex; flex-direction: column;
-    min-height: 210px;
-  }
-  .tilehead {
-    background: var(--chrome); color: var(--chrome-ink);
-    display: flex; justify-content: space-between; align-items: center;
-    padding: 5px 10px; font-size: 14px; font-weight: 800;
-    border-bottom: 1px solid var(--line);
-  }
-  .tilehead .iface { font-size: 11px; font-weight: 700; opacity: .8; }
+  .group h2 .cnt { color: var(--muted); font-weight: 600; letter-spacing: 0; }
 
-  .rows { padding: 6px 0; }
-  .row {
-    display: grid; grid-template-columns: 74px 1fr;
-    padding: 3px 10px; font-size: 13px; line-height: 1.35;
+  /* ---------- slot cards ---------- */
+  .tile {
+    background: var(--card); border: 1px solid var(--hair);
+    display: flex; flex-direction: column; min-height: 208px;
   }
-  .row:nth-child(even) { background: var(--panel-alt); }
+  .tile + .tile { margin-top: 12px; }
+  .tilebar {
+    display: flex; justify-content: space-between; align-items: baseline;
+    padding: 9px 14px 8px;
+    border-bottom: 1px solid var(--hair-soft);
+  }
+  .tilebar .id { font-size: 13px; font-weight: 800; letter-spacing: 1px; }
+  .tilebar .iface {
+    font-size: 10px; font-weight: 700; letter-spacing: 1px;
+    color: var(--muted); text-transform: uppercase;
+  }
+
+  .data { padding: 11px 14px; display: flex; flex-direction: column; gap: 7px; }
+  .row { display: grid; grid-template-columns: 78px 1fr; align-items: baseline; }
   .row .k {
-    color: var(--ink-dim); font-size: 11px; font-weight: 700;
-    text-transform: uppercase; align-self: baseline; padding-top: 1px;
+    font-size: 10px; font-weight: 700; letter-spacing: 1.2px;
+    color: var(--muted); text-transform: uppercase;
   }
-  .row .v { font-weight: 600; overflow-wrap: anywhere; }
-  .row .v.mono { font-family: Consolas, monospace; font-weight: 400; }
-  .v.h-GOOD { color: var(--st-ok); font-weight: 800; }
-  .v.h-WARNING { color: var(--st-warn); font-weight: 800; }
-  .v.h-FAIL { color: var(--st-alarm); font-weight: 800; }
+  .row .v { font-size: 13px; font-weight: 500; overflow-wrap: anywhere; }
+  .row .v.model { font-size: 14px; font-weight: 650; }
+  .row .v.mono { font-family: Consolas, monospace; font-size: 12.5px; }
+  .v.h-GOOD { color: var(--ok); font-weight: 750; }
+  .v.h-WARNING { color: #8a5f00; font-weight: 750; }
+  .v.h-FAIL { color: var(--alarm); font-weight: 750; }
 
   .nodevice {
     flex: 1; display: flex; align-items: center; justify-content: center;
-    color: var(--ink-dim); font-size: 13px; font-weight: 700;
-    letter-spacing: 2px;
+    color: #85888c; font-size: 11px; font-weight: 700; letter-spacing: 2.5px;
   }
 
-  /* ---- progress ---- */
-  .prog { padding: 4px 10px 8px; }
-  .prog .pctline {
+  /* ---------- progress ---------- */
+  .prog { padding: 2px 14px 12px; margin-top: auto; }
+  .prog .lbl {
     display: flex; justify-content: space-between; align-items: baseline;
-    font-size: 12px; font-weight: 700; color: var(--ink-dim);
+    font-size: 10px; font-weight: 700; letter-spacing: 1.2px;
+    color: var(--muted); text-transform: uppercase; margin-bottom: 4px;
   }
-  .prog .pct { font-size: 26px; font-weight: 800; color: var(--ink); font-family: Consolas, monospace; }
-  .prog .bar { height: 14px; border: 1px solid var(--line); background: var(--panel-alt); }
-  .prog .bar > div { height: 100%; background: var(--st-work); transition: width .4s linear; }
+  .prog .pct { font-family: Consolas, monospace; font-size: 20px; font-weight: 700; color: var(--ink); }
+  .prog .bar { height: 8px; background: #c6c8ca; }
+  .prog .bar > div { height: 100%; background: var(--work); transition: width .4s linear; }
 
-  /* ---- status strip (the only large color surface) ---- */
-  .strip {
-    margin-top: auto; border-top: 1px solid var(--line);
-    padding: 7px 10px; color: #fff;
-  }
-  .strip .word { font-size: 21px; font-weight: 900; letter-spacing: 1px; }
-  .strip .note { font-size: 12px; font-weight: 600; margin-top: 1px; }
-  .strip.EMPTY { background: var(--st-neutral); }
-  .strip.DETECTED, .strip.CHECKING { background: var(--st-active); }
-  .strip.CHECKING .word { animation: blink 1.1s step-end infinite; }
-  @keyframes blink { 50% { opacity: .4; } }
-  /* READY is a decision point, not a success — keep it neutral so green
-     strictly means "wiped and verified" and never appears on a bad drive. */
-  .strip.READY { background: var(--panel-alt); color: var(--ink); }
-  .strip.PASSED { background: var(--st-ok); }
-  .strip.WIPING, .strip.VERIFYING { background: var(--st-work); color: var(--ink); }
-  .strip.FAILED, .strip.ERROR { background: var(--st-alarm); }
+  /* ---------- status band: the single color statement per card ---------- */
+  .foot { margin-top: auto; padding: 8px 14px 9px; border-top: 1px solid var(--hair-soft); }
+  .prog + .foot, .ask ~ .foot { margin-top: 0; }
+  .foot .word { font-size: 16px; font-weight: 800; letter-spacing: 1.5px; }
+  .foot .note { font-size: 12px; font-weight: 500; margin-top: 1px; }
+  .foot.EMPTY { color: #85888c; }
+  .foot.READY { color: var(--ink); background: var(--card-dim); }
+  .foot.DETECTED, .foot.CHECKING { background: var(--active); color: #fff; border-top-color: var(--active); }
+  .foot.CHECKING .word { animation: blink 1.2s step-end infinite; }
+  @keyframes blink { 50% { opacity: .45; } }
+  .foot.WIPING, .foot.VERIFYING { background: var(--work); color: var(--ink); border-top-color: var(--work); }
+  .foot.PASSED { background: var(--ok); color: #fff; border-top-color: var(--ok); }
+  .foot.FAILED, .foot.ERROR { background: var(--alarm); color: #fff; border-top-color: var(--alarm); }
 
-  /* ---- operator action ---- */
-  .ask {
-    padding: 8px 10px; border-top: 1px solid var(--line);
-    background: var(--panel-alt);
+  /* ---------- operator action ---------- */
+  .ask { padding: 10px 14px 12px; border-top: 1px solid var(--hair-soft); margin-top: auto; }
+  .ask .q {
+    font-size: 11px; font-weight: 700; letter-spacing: 1.2px;
+    color: var(--muted); text-transform: uppercase; margin-bottom: 8px;
   }
-  .ask .q { font-size: 13px; font-weight: 800; margin-bottom: 6px; }
   .buttons { display: flex; gap: 8px; }
   button.act {
-    flex: 1; height: 52px; font-size: 20px; font-weight: 900;
-    border: 1px solid var(--line); cursor: pointer; font-family: inherit;
+    flex: 1; height: 46px; font-size: 15px; font-weight: 700;
+    letter-spacing: 1.5px; cursor: pointer; font-family: inherit;
+    border: 1px solid transparent;
   }
-  .yes { background: var(--st-ok); color: #fff; }
-  .yes:active { background: #085c21; }
-  .no { background: var(--panel); color: var(--ink); }
-  .no:active { background: #98999c; }
+  .yes { background: var(--ok); color: #fff; }
+  .yes:active { background: #0f5e2b; }
+  .no { background: transparent; color: var(--ink); border-color: var(--hair); }
+  .no:active { background: var(--card-dim); }
 
-  /* ---- simulator panel ---- */
+  /* ---------- simulator ---------- */
   #simpanel {
-    margin: 0 12px 12px; border: 1px dashed var(--line);
-    padding: 8px 10px; font-family: Consolas, monospace; font-size: 12px;
-    color: var(--ink-dim); display: none;
+    display: none; margin: 0 20px 18px;
+    background: var(--section); border: 1px solid var(--hair);
+    padding: 12px;
   }
-  #simpanel .row2 { display: flex; gap: 6px; align-items: center; margin-top: 4px; }
-  #simpanel b { width: 66px; color: var(--ink); }
+  #simpanel h2 {
+    font-size: 11px; font-weight: 700; letter-spacing: 2px;
+    color: #3f4246; text-transform: uppercase;
+    padding-bottom: 9px; margin-bottom: 10px;
+    border-bottom: 1px solid var(--hair);
+  }
+  #simrows { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px 24px; }
+  #simpanel .srow { display: flex; gap: 8px; align-items: center; font-size: 12px; }
+  #simpanel b { width: 60px; font-family: Consolas, monospace; font-size: 12px; }
   #simpanel select, #simpanel button {
-    font-family: Consolas, monospace; font-size: 12px;
-    border: 1px solid var(--line); background: var(--panel-alt);
-    color: var(--ink); padding: 2px 8px; cursor: pointer;
+    font-family: Consolas, monospace; font-size: 11.5px;
+    border: 1px solid var(--hair); background: var(--card);
+    color: var(--ink); padding: 3px 8px; cursor: pointer;
   }
 </style>
 </head>
 <body>
   <div id="topbar">
     <span class="title">DRIVE STATION</span>
-    <span class="counts" id="counts"></span>
+    <div id="counts"></div>
   </div>
-  <div class="groups" id="groups"></div>
+  <div id="groups"></div>
   <div id="simpanel">
-    SIMULATION CONTROL — DEV BUILD ONLY
+    <h2>Simulation control — dev build only</h2>
     <div id="simrows"></div>
   </div>
 
@@ -163,8 +184,7 @@ const PRESETS = ["healthy_nvme","worn_nvme","failing_nvme","healthy_ssd",
   "yank_mid_wipe","wipe_rejected","verify_fail","wont_identify"];
 
 const TYPE_LABEL = { NVME: "NVMe", SATA_SSD: "SATA SSD", SATA_HDD: "SATA HDD" };
-const STATUS_ORDER = ["EMPTY","CHECKING","READY","WIPING","VERIFYING",
-                      "PASSED","FAILED","ERROR"];
+const STATUS_ORDER = ["READY","CHECKING","WIPING","VERIFYING","PASSED","FAILED","ERROR","EMPTY"];
 
 async function post(url, body) {
   await fetch(url, {method: "POST",
@@ -183,10 +203,10 @@ function tileHTML(s) {
   if (!d && s.status === "EMPTY") {
     body = `<div class="nodevice">NO DEVICE</div>`;
   } else if (d) {
-    body = `<div class="rows">`;
-    body += row("Model", `${d.manufacturer} ${d.model}`);
-    body += row("S/N", d.serial, "mono");
-    body += row("Capacity", `${d.capacity} · ${TYPE_LABEL[d.drive_type] ?? d.drive_type}`);
+    body = `<div class="data">`;
+    body += row("Model", `${d.manufacturer} ${d.model}`, "model");
+    body += row("Serial", d.serial, "mono");
+    body += row("Capacity", d.capacity);
     if (h) {
       const pct = h.percent === null ? "" : `${h.percent}% `;
       body += row("Health", `${pct}${h.verdict}`, `h-${h.verdict}`);
@@ -197,7 +217,7 @@ function tileHTML(s) {
     }
     body += `</div>`;
   } else if (s.status === "DETECTED" || s.status === "CHECKING") {
-    body = `<div class="nodevice">IDENTIFYING…</div>`;
+    body = `<div class="nodevice">IDENTIFYING</div>`;
   } else {
     body = `<div class="nodevice">NO DEVICE DATA</div>`;
   }
@@ -205,42 +225,44 @@ function tileHTML(s) {
   if (s.status === "WIPING" || s.status === "VERIFYING") {
     const pct = Math.round(s.progress * 100);
     body += `<div class="prog">
-        <div class="pctline"><span>${s.status === "WIPING" ? "WIPE PASS" : "READ-BACK VERIFY"}</span>
+        <div class="lbl"><span>${s.status === "WIPING" ? "Wipe pass" : "Read-back verify"}</span>
         <span class="pct">${pct}%</span></div>
         <div class="bar"><div style="width:${pct}%"></div></div>
       </div>`;
   }
 
-  let strip = `<div class="strip ${s.status}"><span class="word">${s.status}</span>`;
-  if (s.message) strip += `<div class="note">${s.message}</div>`;
-  strip += `</div>`;
-
   let ask = "";
   if (s.status === "READY" && s.awaiting_confirm) {
-    ask = `<div class="ask"><div class="q">SECURE WIPE THIS DRIVE?</div>
+    ask = `<div class="ask"><div class="q">Secure wipe this drive?</div>
       <div class="buttons">
         <button class="act yes" onclick="post('/api/slots/${s.slot_id}/wipe')">WIPE</button>
         <button class="act no" onclick="post('/api/slots/${s.slot_id}/decline')">SKIP</button>
       </div></div>`;
   }
 
+  let foot = "";
+  if (!ask) {
+    foot = `<div class="foot ${s.status}"><span class="word">${s.status}</span>` +
+      (s.message ? `<div class="note">${s.message}</div>` : "") + `</div>`;
+  }
+
   return `<div class="tile">
-      <div class="tilehead"><span>${s.slot_id}</span>
+      <div class="tilebar"><span class="id">${s.slot_id}</span>
         <span class="iface">${d ? (TYPE_LABEL[d.drive_type] ?? "") : ""}</span></div>
-      ${body}${strip}${ask}
+      ${body}${ask}${foot}
     </div>`;
 }
 
 let simBuilt = false;
 function buildSim(slots) {
   document.getElementById("simrows").innerHTML = slots.map(s => `
-    <div class="row2">
+    <div class="srow">
       <b>${s.slot_id}</b>
       <select id="preset-${s.slot_id}">
         ${PRESETS.map(p => `<option>${p}</option>`).join("")}
       </select>
       <button onclick="post('/api/sim/insert',{slot:'${s.slot_id}',preset:document.getElementById('preset-${s.slot_id}').value})">insert</button>
-      <button onclick="post('/api/sim/remove',{slot:'${s.slot_id}'})">remove / yank</button>
+      <button onclick="post('/api/sim/remove',{slot:'${s.slot_id}'})">yank</button>
     </div>`).join("");
   document.getElementById("simpanel").style.display = "block";
   simBuilt = true;
@@ -251,7 +273,7 @@ function renderCounts(slots) {
   for (const s of slots) c[s.status] = (c[s.status] ?? 0) + 1;
   document.getElementById("counts").innerHTML = STATUS_ORDER
     .filter(st => c[st])
-    .map(st => `<span>${st} <span class="n">${c[st]}</span></span>`)
+    .map(st => `<span class="c"><span class="sq ${st}"></span>${st} <span class="n">${c[st]}</span></span>`)
     .join("");
 }
 
@@ -263,7 +285,8 @@ async function refresh() {
     for (const s of data.slots) (groups[s.group] ??= []).push(s);
     document.getElementById("groups").innerHTML =
       Object.entries(groups).map(([name, slots]) =>
-        `<div class="group"><h2>${name}</h2>${slots.map(tileHTML).join("")}</div>`
+        `<div class="group"><h2><span>${name}</span><span class="cnt">${slots.length} SLOTS</span></h2>
+         ${slots.map(tileHTML).join("")}</div>`
       ).join("");
     renderCounts(data.slots);
     if (data.sim_mode && !simBuilt) buildSim(data.slots);

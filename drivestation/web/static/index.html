@@ -6,81 +6,86 @@
 <title>Drive Station</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
   body {
-    background: #0e1116; color: #e6e9ef;
+    background: #141414; color: #ddd;
     font-family: "Segoe UI", system-ui, sans-serif;
-    padding: 18px; user-select: none;
+    padding: 20px; user-select: none;
   }
-  h1 { font-size: 20px; letter-spacing: 2px; color: #8a93a5; margin-bottom: 14px; }
-  .groups { display: flex; flex-wrap: wrap; gap: 22px; }
-  .group { flex: 1 1 260px; min-width: 260px; }
+  .groups {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+  }
+  @media (max-width: 1100px) { .groups { grid-template-columns: repeat(2, 1fr); } }
   .group h2 {
-    font-size: 15px; letter-spacing: 3px; color: #667089;
-    border-bottom: 2px solid #232a36; padding-bottom: 6px; margin-bottom: 12px;
+    font-size: 14px; font-weight: 600; color: #777;
+    margin-bottom: 10px; text-transform: uppercase;
   }
   .tile {
-    background: #171c25; border: 2px solid #232a36; border-radius: 14px;
-    padding: 16px; margin-bottom: 14px; min-height: 150px;
-    display: flex; flex-direction: column; gap: 6px;
-    transition: border-color .3s;
+    border-radius: 6px; padding: 16px; margin-bottom: 16px;
+    min-height: 190px; display: flex; flex-direction: column; gap: 4px;
   }
-  .slot-name { font-size: 17px; font-weight: 700; letter-spacing: 1px; color: #aab3c5; }
-  .model { font-size: 16px; }
-  .capacity { color: #8a93a5; font-size: 14px; }
-  .health { font-size: 16px; font-weight: 600; }
-  .status {
-    font-size: 26px; font-weight: 800; letter-spacing: 2px; margin-top: auto;
-  }
-  .msg { font-size: 14px; color: #c6cddb; }
-  .tile.EMPTY .status { color: #3d4657; }
-  .tile.DETECTED, .tile.CHECKING { border-color: #2e6bd6; }
-  .tile.DETECTED .status, .tile.CHECKING .status { color: #5b93f5; animation: pulse 1.2s infinite; }
-  .tile.READY { border-color: #2f9e5f; }
-  .tile.READY .status { color: #43d97f; }
-  .tile.READY.healthfail { border-color: #d64545; }
-  .tile.WIPING { border-color: #d69a2e; }
-  .tile.WIPING .status { color: #f2b13d; }
-  .tile.VERIFYING { border-color: #9a5bd6; }
-  .tile.VERIFYING .status { color: #bb86f5; }
-  .tile.PASSED { border-color: #2f9e5f; background: #12241a; }
-  .tile.PASSED .status { color: #43d97f; }
-  .tile.FAILED, .tile.ERROR { border-color: #d64545; background: #251214; }
-  .tile.FAILED .status, .tile.ERROR .status { color: #ff5c5c; }
-  .verdict-GOOD { color: #43d97f; }
-  .verdict-WARNING { color: #f2b13d; }
-  .verdict-FAIL { color: #ff5c5c; }
-  @keyframes pulse { 50% { opacity: .45; } }
-  .bar { height: 14px; background: #232a36; border-radius: 7px; overflow: hidden; }
-  .bar > div { height: 100%; background: #f2b13d; transition: width .4s; }
-  .VERIFYING .bar > div { background: #bb86f5; }
-  .pct { font-size: 20px; font-weight: 700; }
+  .top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+  .slot { font-size: 15px; font-weight: 800; }
+  .type { font-size: 12px; font-weight: 600; opacity: .65; }
+  .model { font-size: 18px; font-weight: 600; line-height: 1.25; }
+  .cap { font-size: 14px; opacity: .75; }
+  .health { font-size: 16px; font-weight: 800; margin-top: 6px; }
+  .warn { font-size: 13px; font-weight: 600; opacity: .9; }
+  .status { font-size: 32px; font-weight: 900; margin-top: auto; line-height: 1.1; }
+  .msg { font-size: 14px; font-weight: 600; margin-top: 2px; }
+
+  /* State = whole-tile color. Readable from across the bench. */
+  .tile.EMPTY { background: #1d1d1d; color: #4a4a4a; }
+  .tile.EMPTY .status { margin: auto; font-size: 24px; letter-spacing: 1px; }
+  .tile.EMPTY .slot { color: #5f5f5f; }
+
+  .tile.DETECTED, .tile.CHECKING { background: #12509e; color: #fff; }
+  .tile.DETECTED .status, .tile.CHECKING .status { animation: blink 1.1s step-end infinite; }
+  @keyframes blink { 50% { opacity: .35; } }
+
+  .tile.READY { background: #f1efe9; color: #151515; }
+  .tile.READY .health.GOOD { color: #156e2d; }
+  .tile.READY .health.WARNING { color: #8f5a00; }
+  .tile.READY .health.FAIL { color: #a91d15; }
+  .tile.READY .warn { color: #444; }
+
+  .tile.WIPING, .tile.VERIFYING { background: #dd9e00; color: #161616; }
+  .pct { font-size: 58px; font-weight: 900; line-height: 1; margin-top: 10px; }
+  .bar { height: 12px; background: rgba(0,0,0,.25); margin-top: 8px; }
+  .bar > div { height: 100%; background: #161616; transition: width .4s linear; }
+
+  .tile.PASSED { background: #1c7c38; color: #fff; }
+  .tile.FAILED, .tile.ERROR { background: #ab211a; color: #fff; }
+
+  .ask { font-size: 15px; font-weight: 800; margin-top: 10px; }
   .buttons { display: flex; gap: 10px; margin-top: 8px; }
   button {
-    flex: 1; font-size: 20px; font-weight: 800; padding: 14px 0;
-    border: none; border-radius: 10px; cursor: pointer; letter-spacing: 1px;
+    flex: 1; height: 56px; font-size: 22px; font-weight: 900;
+    border: none; border-radius: 4px; cursor: pointer;
+    font-family: inherit;
   }
-  .yes { background: #1f7a45; color: #fff; }
-  .yes:hover { background: #27995a; }
-  .no { background: #3a4354; color: #dfe4ee; }
-  .no:hover { background: #4a5568; }
-  .wipeq { font-size: 15px; font-weight: 700; color: #f2b13d; margin-top: 6px; }
+  .yes { background: #156e2d; color: #fff; }
+  .yes:active { background: #0e5220; }
+  .no { background: #c9c5bb; color: #222; }
+  .no:active { background: #b3afa5; }
+
   #simpanel {
-    margin-top: 30px; padding: 14px; border: 1px dashed #3a4354;
-    border-radius: 10px; color: #8a93a5; font-size: 13px;
+    margin-top: 26px; padding-top: 12px; border-top: 1px solid #2a2a2a;
+    font-family: Consolas, monospace; font-size: 12px; color: #666;
   }
-  #simpanel h3 { margin-bottom: 8px; font-size: 13px; letter-spacing: 2px; }
-  #simpanel .row { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; flex-wrap: wrap; }
+  #simpanel .row { display: flex; gap: 6px; align-items: center; margin-top: 5px; }
+  #simpanel b { width: 64px; color: #888; }
   #simpanel select, #simpanel button {
-    font-size: 13px; padding: 5px 10px; border-radius: 6px; flex: none;
-    background: #232a36; color: #dfe4ee; border: 1px solid #3a4354; cursor: pointer;
+    all: revert; font-family: Consolas, monospace; font-size: 12px;
   }
 </style>
 </head>
 <body>
-  <h1>DRIVE STATION</h1>
   <div class="groups" id="groups"></div>
   <div id="simpanel" style="display:none">
-    <h3>SIMULATOR (dev only — not shown on the real station)</h3>
+    SIMULATOR — dev only, hidden on the real station
     <div id="simrows"></div>
   </div>
 
@@ -88,6 +93,8 @@
 const PRESETS = ["healthy_nvme","worn_nvme","failing_nvme","healthy_ssd",
   "smart_fail_ssd","healthy_hdd","warning_hdd","failing_hdd",
   "yank_mid_wipe","wipe_rejected","verify_fail","wont_identify"];
+
+const TYPE_LABEL = { NVME: "NVMe", SATA_SSD: "SATA SSD", SATA_HDD: "SATA HDD" };
 
 async function post(url, body) {
   await fetch(url, {method: "POST",
@@ -97,40 +104,47 @@ async function post(url, body) {
 
 function tileHTML(s) {
   const d = s.drive, h = s.health;
-  let inner = `<div class="slot-name">${s.slot_id}</div>`;
-  if (d) {
-    inner += `<div class="model">${d.manufacturer} ${d.model}</div>
-              <div class="capacity">${d.capacity} &middot; ${d.drive_type.replace("_"," ")}</div>`;
+  let inner = `<div class="top"><span class="slot">${s.slot_id}</span>` +
+    (d ? `<span class="type">${TYPE_LABEL[d.drive_type] ?? ""}</span>` : "") +
+    `</div>`;
+
+  if (s.status === "EMPTY") {
+    return `<div class="tile EMPTY">${inner}<div class="status">EMPTY</div></div>`;
   }
-  if (h && (s.status === "READY" || s.status === "PASSED")) {
-    const pct = h.percent === null ? "" : `Health ${h.percent}% `;
-    inner += `<div class="health verdict-${h.verdict}">${pct}${h.verdict}</div>`;
-    if (h.warnings.length) inner += `<div class="msg">${h.warnings.join(", ")}</div>`;
+
+  if (d) inner += `<div class="model">${d.manufacturer} ${d.model}</div>
+                   <div class="cap">${d.capacity}</div>`;
+
+  if (h && s.status === "READY") {
+    const pct = h.percent === null ? "" : `HEALTH ${h.percent}% — `;
+    inner += `<div class="health ${h.verdict}">${pct}${h.verdict}</div>`;
+    if (h.warnings.length) inner += `<div class="warn">${h.warnings.join(" · ")}</div>`;
   }
+
   if (s.status === "WIPING" || s.status === "VERIFYING") {
     const pct = Math.round(s.progress * 100);
     inner += `<div class="pct">${pct}%</div>
               <div class="bar"><div style="width:${pct}%"></div></div>`;
   }
+
   inner += `<div class="status">${s.status}</div>`;
   if (s.message) inner += `<div class="msg">${s.message}</div>`;
+
   if (s.status === "READY" && s.awaiting_confirm) {
-    inner += `<div class="wipeq">WIPE THIS DRIVE?</div>
+    inner += `<div class="ask">WIPE THIS DRIVE?</div>
       <div class="buttons">
         <button class="yes" onclick="post('/api/slots/${s.slot_id}/wipe')">YES</button>
         <button class="no" onclick="post('/api/slots/${s.slot_id}/decline')">NO</button>
       </div>`;
   }
-  const failHealth = h && h.verdict === "FAIL" ? " healthfail" : "";
-  return `<div class="tile ${s.status}${failHealth}">${inner}</div>`;
+  return `<div class="tile ${s.status}">${inner}</div>`;
 }
 
 let simBuilt = false;
 function buildSim(slots) {
-  const rows = document.getElementById("simrows");
-  rows.innerHTML = slots.map(s => `
+  document.getElementById("simrows").innerHTML = slots.map(s => `
     <div class="row">
-      <b style="width:70px">${s.slot_id}</b>
+      <b>${s.slot_id}</b>
       <select id="preset-${s.slot_id}">
         ${PRESETS.map(p => `<option>${p}</option>`).join("")}
       </select>

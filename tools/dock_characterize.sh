@@ -129,13 +129,16 @@ echo
 
 for slot in "${SLOTS[@]}"; do
     echo
-    read -rp "--- Insert a drive into $slot (or press s to skip): " skip
+    # Snapshot BEFORE prompting, so it doesn't matter whether the drive
+    # enumerates before or after the operator presses enter.
+    before=$(list_disks)
+    echo "--- $slot: insert a drive now (power-cycle the port if the dock needs it),"
+    read -rp "    then press enter (or type s to skip this slot): " skip
     [[ "$skip" == "s" ]] && continue
 
-    before=$(list_disks)
-    echo "Waiting up to 30s for the drive to appear..."
+    echo "Waiting up to 45s for the drive to appear..."
     dev=""
-    for _ in $(seq 1 30); do
+    for _ in $(seq 1 45); do
         sleep 1
         new=$(comm -13 <(echo "$before") <(list_disks))
         if [[ -n "$new" ]]; then dev=$(echo "$new" | head -n1); break; fi

@@ -90,6 +90,12 @@
     color: var(--muted); border: 1px solid var(--card-line);
     padding: 2px 7px; text-transform: uppercase;
   }
+  .tilebar .guard {
+    font-size: 10px; font-weight: 800; letter-spacing: .6px;
+    color: #141414; background: var(--work);
+    padding: 3px 7px; animation: blink 1.2s step-end infinite;
+  }
+  .ghost .tilebar .guard { color: #141414; }
 
   .data { padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
   .row { display: grid; grid-template-columns: 76px 1fr; align-items: baseline; }
@@ -212,12 +218,24 @@ function row(k, v, cls = "") {
   return `<div class="row"><span class="k">${k}</span><span class="v ${cls}">${v}</span></div>`;
 }
 
-function tileHTML(s) {
+// Docks that need a port power-cycle to swap drives. Cycling the dual-bay
+// SATA dock drops BOTH bays, so warn on a bay whenever its sibling is busy.
+const SHARED_POWER_GROUPS = ["SATA DOCK"];
+
+function guardChip(s, busySlots) {
+  if (!SHARED_POWER_GROUPS.includes(s.group)) return "";
+  const sibling = busySlots.find(id => id !== s.slot_id);
+  if (!sibling) return "";
+  return `<span class="guard">DO NOT POWER-CYCLE — ${sibling} BUSY</span>`;
+}
+
+function tileHTML(s, busyByGroup) {
   const d = s.drive, h = s.health;
+  const guard = guardChip(s, busyByGroup[s.group] ?? []);
 
   if (s.status === "EMPTY") {
     return `<div class="tile ghost">
-        <div class="tilebar"><span class="id">${s.slot_id}</span></div>
+        <div class="tilebar"><span class="id">${s.slot_id}</span>${guard}</div>
         <div class="nodevice">NO DEVICE</div>
         <div class="foot"><span class="word">EMPTY</span></div>
       </div>`;
@@ -273,7 +291,7 @@ function tileHTML(s) {
 
   return `<div class="tile solid">
       <div class="tilebar"><span class="id">${s.slot_id}</span>
-        ${d ? `<span class="iface">${TYPE_LABEL[d.drive_type] ?? ""}</span>` : ""}</div>
+        ${guard || (d ? `<span class="iface">${TYPE_LABEL[d.drive_type] ?? ""}</span>` : "")}</div>
       ${body}${ask}${foot}
     </div>`;
 }
@@ -314,11 +332,17 @@ async function refresh() {
     const res = await fetch("/api/state");
     const data = await res.json();
     const groups = {};
-    for (const s of data.slots) (groups[s.group] ??= []).push(s);
+    const busyByGroup = {};
+    for (const s of data.slots) {
+      (groups[s.group] ??= []).push(s);
+      if (s.status === "WIPING" || s.status === "VERIFYING") {
+        (busyByGroup[s.group] ??= []).push(s.slot_id);
+      }
+    }
     document.getElementById("groups").innerHTML =
       Object.entries(groups).map(([name, slots]) =>
         `<div class="group"><h2><span>${name}</span><span class="cnt">${slots.length} SLOTS</span></h2>
-         ${slots.map(tileHTML).join("")}</div>`
+         ${slots.map(s => tileHTML(s, busyByGroup)).join("")}</div>`
       ).join("");
     renderCounts(data.slots);
     if (data.sim_mode && !simBuilt) buildSim(data.slots);

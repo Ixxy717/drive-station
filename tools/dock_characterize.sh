@@ -152,10 +152,25 @@ for slot in "${SLOTS[@]}"; do
     read -rp "--- Now REMOVE the drive from $slot and press enter (hot-unplug test): " _
     sleep 3
     if list_disks | grep -qx "$dev"; then
-        echo "!! /dev/$dev still present after removal — flagged." \
-            | tee -a "$OUTDIR/$slot.txt"
+        echo "!! /dev/$dev still present after removal (ghost device — bridge" \
+             "only scans at power-on)." | tee -a "$OUTDIR/$slot.txt"
+        section "STALE-SWAP TEST (non-hot-swap bridge behavior)" "$OUTDIR/$slot.txt"
+        echo
+        echo "    Ghost detected. This dock likely needs a power-cycle per swap."
+        read -rp "--- Insert a DIFFERENT drive into $slot WITHOUT power-cycling, press enter (or s to skip): " sk2
+        if [[ "$sk2" != "s" ]]; then
+            sleep 10
+            echo "Devices 15s after stale swap:" >>"$OUTDIR/$slot.txt"
+            run_logged "$OUTDIR/$slot.txt" lsblk -o NAME,SIZE,MODEL,SERIAL
+            # Does the ghost node now answer with the NEW drive's identity?
+            run_logged "$OUTDIR/$slot.txt" smartctl -i "/dev/$dev"
+            read -rp "--- Now power-cycle the port for $slot, press enter: " _
+            sleep 8
+            echo "Devices after power-cycle:" >>"$OUTDIR/$slot.txt"
+            run_logged "$OUTDIR/$slot.txt" lsblk -o NAME,SIZE,MODEL,SERIAL
+        fi
     else
-        echo "Removal detected cleanly." >>"$OUTDIR/$slot.txt"
+        echo "Removal detected cleanly (true hot-swap)." >>"$OUTDIR/$slot.txt"
     fi
 done
 

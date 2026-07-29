@@ -42,6 +42,11 @@
   }
   #topbar .title { font-size: 13px; font-weight: 700; letter-spacing: 3.5px; }
   #topbar .right { display: flex; align-items: center; gap: 26px; }
+  #topbar .nav a {
+    color: #a6a9af; text-decoration: none; font-size: 11px; font-weight: 700;
+    letter-spacing: 1.5px; margin-left: 14px;
+  }
+  #topbar .nav a:hover { color: #fff; }
   #counts { display: flex; gap: 20px; font-size: 12px; font-weight: 600; }
   #counts .c { display: flex; align-items: center; gap: 7px; color: #a6a9af; }
   #counts .n { color: #fff; font-weight: 700; }
@@ -188,7 +193,14 @@
 </head>
 <body>
   <div id="topbar">
-    <span class="title">DRIVE STATION</span>
+    <span>
+      <span class="title">DRIVE STATION</span>
+      <span class="nav">
+        <a href="/">BOARD</a>
+        <a href="/logs">LOGS</a>
+        <a href="/files/">FILES</a>
+      </span>
+    </span>
     <div class="right">
       <div id="counts"></div>
       <span id="clock" class="num"></span>

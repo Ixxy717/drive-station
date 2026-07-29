@@ -53,7 +53,16 @@ Optional:
 - `DRIVESTATION_DB=/var/lib/drivestation/drivestation.db` — job log location
 - `DRIVESTATION_NO_PYUDEV=1` — poll-only detection (pyudev still recommended)
 
-Open http://\<mini-pc-ip\>:8330 on the kiosk display.
+Everything is on one LAN URL (printed at startup), for example:
+
+```
+http://192.168.1.200:8330/        board (kiosk)
+http://192.168.1.200:8330/logs    wipe job log + eBay blurbs
+http://192.168.1.200:8330/files/  characterization reports / text dumps
+http://192.168.1.200:8330/api/records.csv
+```
+
+Use **http://** (not https). Same Wi‑Fi/LAN as the mini PC.
 
 ### Wipe methods (Phase 0 locked)
 

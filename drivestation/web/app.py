@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+import csv
+import io
+import logging
 import os
+import socket
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from ..db import JobLog
@@ -14,10 +20,50 @@ from ..hw.simulator import (SimFaults, SimulatorBackend, make_hdd, make_nvme,
 from ..models import SLOT_LAYOUT
 from ..station import Station
 
+log = logging.getLogger("drivestation")
+
 MODE = os.environ.get("DRIVESTATION_MODE", "sim")
 STATIC = Path(__file__).parent / "static"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+REPORTS_DIR = Path(os.environ.get("DRIVESTATION_REPORTS", REPO_ROOT / "reports"))
+REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
-app = FastAPI(title="drive-station")
+
+def _lan_urls(port: int = 8330) -> list[str]:
+    urls = [f"http://127.0.0.1:{port}/"]
+    try:
+        hostname = socket.gethostname()
+        for info in socket.getaddrinfo(hostname, None, socket.AF_INET):
+            ip = info[4][0]
+            if ip.startswith("127."):
+                continue
+            urls.append(f"http://{ip}:{port}/")
+    except OSError:
+        pass
+    # Dedupe preserving order
+    seen: set[str] = set()
+    out: list[str] = []
+    for u in urls:
+        if u not in seen:
+            seen.add(u)
+            out.append(u)
+    return out
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    port = int(os.environ.get("DRIVESTATION_PORT", "8330"))
+    print()
+    print("Drive Station is on the LAN — open from this PC or another:")
+    for u in _lan_urls(port):
+        print(f"  Board : {u}")
+        print(f"  Logs  : {u}logs")
+        print(f"  Files : {u}files/")
+    print()
+    yield
+
+
+app = FastAPI(title="drive-station", lifespan=lifespan)
 
 if MODE == "real":
     from ..hw.linux import LinuxBackend
@@ -32,10 +78,18 @@ else:
 joblog = JobLog(os.environ.get("DRIVESTATION_DB", "drivestation.db"))
 station = Station(backend, joblog)
 
+# Characterization reports + any other station files — same origin as the board.
+app.mount("/files", StaticFiles(directory=str(REPORTS_DIR), html=True), name="files")
+
 
 @app.get("/")
 def index() -> FileResponse:
     return FileResponse(STATIC / "index.html")
+
+
+@app.get("/logs")
+def logs_page() -> FileResponse:
+    return FileResponse(STATIC / "logs.html")
 
 
 @app.get("/api/state")
@@ -59,9 +113,34 @@ def decline(slot_id: str) -> dict:
 
 
 @app.get("/api/records")
-def records(serial: Optional[str] = None) -> dict:
-    rows = joblog.by_serial(serial) if serial else joblog.recent()
+def records(
+    serial: Optional[str] = None,
+    limit: int = Query(100, ge=1, le=2000),
+) -> dict:
+    rows = joblog.by_serial(serial) if serial else joblog.recent(limit)
     return {"records": rows}
+
+
+@app.get("/api/records.csv")
+def records_csv(limit: int = Query(2000, ge=1, le=10000)) -> StreamingResponse:
+    rows = joblog.recent(limit)
+    buf = io.StringIO()
+    fields = [
+        "id", "created_at", "slot", "manufacturer", "model", "serial",
+        "capacity_bytes", "drive_type", "health_percent", "health_verdict",
+        "health_warnings", "wipe_method", "wipe_started_at", "wipe_finished_at",
+        "result", "error", "batch",
+    ]
+    w = csv.DictWriter(buf, fieldnames=fields, extrasaction="ignore")
+    w.writeheader()
+    for r in rows:
+        w.writerow(r)
+    buf.seek(0)
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=drivestation-jobs.csv"},
+    )
 
 
 @app.get("/api/records/{serial}/blurb", response_class=PlainTextResponse)
@@ -88,6 +167,30 @@ def blurb(serial: str) -> str:
         lines.append(f"WIPE RESULT: {r['result']} — not cleared for resale")
     lines.append(f"Serial: {r['serial']} (traceable wipe record on file)")
     return "\n".join(lines)
+
+
+@app.get("/api/files")
+def list_files() -> dict:
+    """Index of files under reports/ for the logs page."""
+    files = []
+    if REPORTS_DIR.is_dir():
+        for p in sorted(REPORTS_DIR.rglob("*")):
+            if not p.is_file():
+                continue
+            if p.name.startswith("."):
+                continue
+            rel = p.relative_to(REPORTS_DIR).as_posix()
+            files.append({
+                "path": rel,
+                "size_kb": max(1, p.stat().st_size // 1024),
+            })
+    return {"files": files[-500:]}  # newest-ish by walk order; cap size
+
+
+@app.get("/api/urls")
+def urls() -> dict:
+    port = int(os.environ.get("DRIVESTATION_PORT", "8330"))
+    return {"urls": _lan_urls(port)}
 
 
 # -- simulator control endpoints (dev only) ----------------------------------

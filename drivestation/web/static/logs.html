@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Drive Station — Logs</title>
+<style>
+  :root {
+    --canvas: #34373d; --card: #f1f1ef; --hair: #8f9296; --ink: #1b1d20;
+    --muted: #63666b; --ok: #178040; --alarm: #c03328; --work: #d19200;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; border-radius: 0 !important; }
+  body {
+    background: var(--canvas); color: var(--ink);
+    font-family: "Segoe UI", system-ui, sans-serif; padding: 0 0 40px;
+  }
+  #topbar {
+    background: #232529; color: #eceded;
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 0 22px; height: 46px; border-bottom: 1px solid #000;
+  }
+  #topbar a { color: #cdd0d5; text-decoration: none; font-size: 12px; font-weight: 700; letter-spacing: 1px; margin-left: 18px; }
+  #topbar a:hover { color: #fff; }
+  .title { font-size: 13px; font-weight: 700; letter-spacing: 3.5px; }
+  .wrap { max-width: 1200px; margin: 20px auto; padding: 0 16px; }
+  .panel { background: var(--card); border: 1px solid #101113; padding: 16px; margin-bottom: 16px; }
+  h2 { font-size: 12px; letter-spacing: 2px; color: var(--muted); margin-bottom: 12px; text-transform: uppercase; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; align-items: center; }
+  input, button, select {
+    font: inherit; border: 1px solid var(--hair); background: #fff; color: var(--ink);
+    padding: 8px 10px; height: 38px;
+  }
+  button { cursor: pointer; font-weight: 700; letter-spacing: 1px; background: #e4e4e1; }
+  button.primary { background: var(--ok); color: #fff; border-color: var(--ok); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #ddd; vertical-align: top; }
+  th { font-size: 11px; letter-spacing: 1px; color: var(--muted); text-transform: uppercase; }
+  tr:hover td { background: #e8e8e5; }
+  .PASSED { color: var(--ok); font-weight: 700; }
+  .FAILED, .ERROR { color: var(--alarm); font-weight: 700; }
+  .mono { font-family: Consolas, monospace; font-size: 12px; }
+  .muted { color: var(--muted); font-size: 12px; }
+  #blurb {
+    white-space: pre-wrap; font-family: Consolas, monospace; font-size: 13px;
+    background: #e8e8e5; border: 1px solid var(--hair); padding: 12px; min-height: 80px;
+  }
+  .files a { display: block; color: #14589f; margin: 4px 0; }
+</style>
+</head>
+<body>
+  <div id="topbar">
+    <span class="title">DRIVE STATION — LOGS</span>
+    <span>
+      <a href="/">BOARD</a>
+      <a href="/logs">LOGS</a>
+      <a href="/files/">FILES</a>
+      <a href="/api/records.csv">CSV</a>
+    </span>
+  </div>
+  <div class="wrap">
+    <div class="panel">
+      <h2>Job log</h2>
+      <div class="row">
+        <input id="q" placeholder="Search serial…" style="flex:1;min-width:180px">
+        <button class="primary" onclick="load()">SEARCH</button>
+        <button onclick="document.getElementById('q').value=''; load()">ALL</button>
+        <span class="muted" id="meta"></span>
+      </div>
+      <div style="overflow-x:auto">
+        <table>
+          <thead>
+            <tr>
+              <th>When</th><th>Slot</th><th>Drive</th><th>Serial</th>
+              <th>Health</th><th>Method</th><th>Result</th><th></th>
+            </tr>
+          </thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Listing blurb</h2>
+      <p class="muted" style="margin-bottom:8px">Click BLURB on a row, then copy for eBay / listings.</p>
+      <div id="blurb">Select a record…</div>
+      <div class="row" style="margin-top:10px">
+        <button onclick="navigator.clipboard.writeText(document.getElementById('blurb').textContent)">COPY</button>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Report files on this station</h2>
+      <p class="muted" style="margin-bottom:8px">
+        Characterization dumps and other files under <span class="mono">reports/</span>.
+        Full browser: <a href="/files/">/files/</a>
+      </p>
+      <div class="files" id="files"></div>
+    </div>
+  </div>
+<script>
+async function load() {
+  const q = document.getElementById("q").value.trim();
+  const url = q ? `/api/records?serial=${encodeURIComponent(q)}` : "/api/records?limit=200";
+  const data = await (await fetch(url)).json();
+  const rows = data.records || [];
+  document.getElementById("meta").textContent = `${rows.length} record(s)`;
+  document.getElementById("tbody").innerHTML = rows.map(r => {
+    const when = (r.wipe_finished_at || r.wipe_started_at || r.created_at || "").replace("T", " ").slice(0, 19);
+    const health = r.health_percent != null ? `${r.health_percent}% ${r.health_verdict || ""}` : (r.health_verdict || "");
+    const err = r.error ? `<div class="muted">${esc(r.error)}</div>` : "";
+    return `<tr>
+      <td class="mono">${esc(when)}</td>
+      <td>${esc(r.slot || "")}</td>
+      <td>${esc((r.manufacturer || "") + " " + (r.model || ""))}<div class="muted">${esc(r.drive_type || "")}</div></td>
+      <td class="mono">${esc(r.serial || "")}</td>
+      <td>${esc(health)}</td>
+      <td class="mono">${esc((r.wipe_method || "").replaceAll("_", " "))}</td>
+      <td class="${esc(r.result || "")}">${esc(r.result || "…")}${err}</td>
+      <td><button onclick="blurb('${escAttr(r.serial || "")}')">BLURB</button></td>
+    </tr>`;
+  }).join("") || `<tr><td colspan="8" class="muted">No jobs logged yet.</td></tr>`;
+}
+
+async function blurb(serial) {
+  if (!serial) return;
+  const res = await fetch(`/api/records/${encodeURIComponent(serial)}/blurb`);
+  document.getElementById("blurb").textContent = res.ok ? await res.text() : "No blurb for that serial.";
+}
+
+async function loadFiles() {
+  const res = await fetch("/api/files");
+  if (!res.ok) { document.getElementById("files").textContent = "No files."; return; }
+  const data = await res.json();
+  const items = data.files || [];
+  document.getElementById("files").innerHTML = items.length
+    ? items.map(f => `<a href="/files/${encodeURI(f.path)}">${esc(f.path)} <span class="muted">(${f.size_kb} KB)</span></a>`).join("")
+    : `<span class="muted">No report files yet.</span>`;
+}
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function escAttr(s) { return String(s).replace(/\\/g, "\\\\").replace(/'/g, "\\'"); }
+
+load();
+loadFiles();
+</script>
+</body>
+</html>

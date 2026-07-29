@@ -408,11 +408,8 @@ dual_sata_map() {
 if [[ $DUAL -eq 1 ]]; then
     dual_sata_map
     echo
-    read -rp "Start the LAN report server now on port 2020? [enter=yes / n=no]: " serve
-    if [[ "$serve" != "n" && "$serve" != "N" ]]; then
-        exec bash "$(dirname "$0")/serve_reports.sh" 2020
-    fi
-    exit 0
+    echo "Starting LAN report server so you can grab DUAL-SATA-MAP.txt..."
+    exec bash "$(dirname "$0")/serve_reports.sh" 2020
 fi
 
 echo

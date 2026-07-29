@@ -31,11 +31,13 @@ for tool in smartctl nvme hdparm lsblk udevadm lsusb; do
     }
 done
 
-OUTDIR="reports/dock-characterization-$(date +%Y%m%d-%H%M%S)"
+# Always write next to this repo, regardless of the caller's cwd (sudo/cd traps).
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+OUTDIR="$ROOT/reports/dock-characterization-$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$OUTDIR"
 echo "Reports -> $OUTDIR"
 
-SLOTS=(SATA-1 SATA-2 NVME-A1 NVME-A2 NVME-B1 NVME-B2 M2-1)
+SLOTS=(SATA-1 SATA-2 NVME-A1 NVME-A2 NVME-B1 NVME-B2 M2-1 M2-2)
 
 # Disk names only (used for removal checks / summaries).
 list_disks() { lsblk -dno NAME,TYPE | awk '$2=="disk"{print $1}' | sort; }

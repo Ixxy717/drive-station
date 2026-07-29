@@ -138,7 +138,13 @@ class LinuxBackend(HardwareBackend):
 
     def read_identity(self, slot_id: str) -> Optional[DriveInfo]:
         path = self._require_dev(slot_id)
-        return read_identity(path, self._slot_cfg(slot_id), self._run)
+        with self._lock:
+            dev = self._present.get(slot_id)
+        fallback = dev.size_bytes if dev else 0
+        return read_identity(
+            path, self._slot_cfg(slot_id), self._run,
+            fallback_capacity_bytes=fallback,
+        )
 
     def read_health(self, slot_id: str) -> dict:
         path = self._require_dev(slot_id)

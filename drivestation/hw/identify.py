@@ -101,26 +101,50 @@ def _classify_drive_type(data: dict, slot: SlotConfig) -> DriveType:
 
 
 def _capacity_bytes(data: dict) -> int:
-    uc = data.get("user_capacity") or {}
-    if isinstance(uc, dict) and "bytes" in uc:
-        try:
-            return int(uc["bytes"])
-        except (TypeError, ValueError):
-            pass
-    # nvme style
-    for key in ("nvme_total_capacity", "total_nvm_capacity"):
-        if key in data:
+    for blob in (data, data.get("_sntrealtek") or {}):
+        if not isinstance(blob, dict):
+            continue
+        uc = blob.get("user_capacity") or {}
+        if isinstance(uc, dict) and "bytes" in uc:
             try:
-                return int(data[key])
+                return int(uc["bytes"])
             except (TypeError, ValueError):
                 pass
+        # nvme / scsi style fields smartctl sometimes uses behind USB bridges
+        for key in ("nvme_total_capacity", "total_nvm_capacity",
+                    "scsi_capacity", "size"):
+            if key in blob and blob[key] is not None:
+                try:
+                    return int(blob[key])
+                except (TypeError, ValueError):
+                    pass
+        # logical blocks × block size
+        lbs = blob.get("logical_block_size") or blob.get("block_size")
+        blocks = blob.get("user_capacity_blocks") or blob.get("blocks")
+        try:
+            if lbs and blocks:
+                return int(lbs) * int(blocks)
+        except (TypeError, ValueError):
+            pass
     return 0
+
+
+def _lsblk_capacity_bytes(dev_path: str, run: RunCmd) -> int:
+    """Kernel-visible size — works when USB bridges omit SMART capacity."""
+    code, out, _ = run(["lsblk", "-dbno", "SIZE", dev_path])
+    if code != 0 or not out.strip():
+        return 0
+    try:
+        return int(out.strip().splitlines()[0])
+    except (ValueError, IndexError):
+        return 0
 
 
 def read_identity(
     dev_path: str,
     slot: SlotConfig,
     run: RunCmd = default_run_cmd,
+    fallback_capacity_bytes: int = 0,
 ) -> Optional[DriveInfo]:
     data = _pick_identify(dev_path, slot.bridge, run)
     model = (data.get("model_name") or data.get("scsi_model") or "").strip()
@@ -146,6 +170,10 @@ def read_identity(
             dtype = DriveType.SATA_SSD
 
     cap = _capacity_bytes(data)
+    if cap <= 0 and fallback_capacity_bytes > 0:
+        cap = int(fallback_capacity_bytes)
+    if cap <= 0:
+        cap = _lsblk_capacity_bytes(dev_path, run)
     return DriveInfo(
         manufacturer=manufacturer,
         model=model_name if manufacturer != "Unknown" else model,

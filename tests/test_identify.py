@@ -108,6 +108,23 @@ def test_nvme_health_unavailable_through_bridge():
     assert any("unavailable" in w.lower() for w in result.warnings)
 
 
+def test_capacity_falls_back_to_lsblk_when_smart_omits_it():
+    payload = {
+        "model_name": "WDC PC SN720",
+        "serial_number": "19330F807243",
+        # no user_capacity — RTL9210 often omits this
+    }
+
+    def run(argv):
+        if argv[0] == "lsblk":
+            return 0, "256060514304\n", ""
+        return 0, json.dumps(payload), ""
+
+    info = read_identity("/dev/sdd", _rtl(), run)
+    assert info is not None
+    assert info.capacity_bytes == 256060514304
+
+
 def test_hdd_health_attributes():
     payload = {
         "smart_status": {"passed": True},

@@ -26,8 +26,9 @@ class DriveType(str, Enum):
 
 class HealthVerdict(str, Enum):
     GOOD = "GOOD"
-    WARNING = "WARNING"
-    FAIL = "FAIL"
+    WARNING = "WARNING"   # soft flag; scrap rules usually promote to SCRAP
+    SCRAP = "SCRAP"       # do not resell
+    FAIL = "FAIL"         # SMART / media hard failure (also not for resale)
     UNKNOWN = "UNKNOWN"
 
 
@@ -65,12 +66,32 @@ class HealthResult:
 
 
 @dataclass
+class UsageSnapshot:
+    """Pre-wipe occupancy shown on the board / stored on the job."""
+    capacity_bytes: int
+    used_bytes: Optional[int]
+    has_partitions: bool
+    label: str
+    detail: str = ""
+
+    def to_dict(self) -> dict:
+        return {
+            "capacity_bytes": self.capacity_bytes,
+            "used_bytes": self.used_bytes,
+            "has_partitions": self.has_partitions,
+            "label": self.label,
+            "detail": self.detail,
+        }
+
+
+@dataclass
 class SlotState:
     slot_id: str
     group: str
     status: SlotStatus = SlotStatus.EMPTY
     drive: Optional[DriveInfo] = None
     health: Optional[HealthResult] = None
+    usage: Optional[UsageSnapshot] = None
     progress: float = 0.0
     message: str = ""
     awaiting_confirm: bool = False
@@ -93,6 +114,7 @@ class SlotState:
                 "percent": self.health.percent,
                 "warnings": self.health.warnings,
             },
+            "usage": None if self.usage is None else self.usage.to_dict(),
             "progress": round(self.progress, 3),
             "message": self.message,
             "awaiting_confirm": self.awaiting_confirm,

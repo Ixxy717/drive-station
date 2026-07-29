@@ -56,9 +56,11 @@ async def lifespan(app: FastAPI):
     print()
     print("Drive Station is on the LAN — open from this PC or another:")
     for u in _lan_urls(port):
-        print(f"  Board : {u}")
-        print(f"  Logs  : {u}logs")
-        print(f"  Files : {u}files/")
+        print(f"  Board  : {u}")
+        print(f"  Logs   : {u}logs")
+        print(f"  Drive  : {u}d/<SERIAL>   (eBay listing card)")
+        print(f"  Files  : {u}files/")
+    print("  Tip: set hostname 'drivestation' + Avahi for http://drivestation.local:8330/d/<SERIAL>")
     print()
     yield
 
@@ -90,6 +92,16 @@ def index() -> FileResponse:
 @app.get("/logs")
 def logs_page() -> FileResponse:
     return FileResponse(STATIC / "logs.html")
+
+
+@app.get("/d/{serial}")
+@app.get("/s/{serial}")
+def drive_page(serial: str) -> FileResponse:
+    """Per-serial listing card for eBay / resale (open on phone or PC)."""
+    rows = joblog.by_serial(serial)
+    if not rows:
+        raise HTTPException(status_code=404, detail="No wipe record for that serial")
+    return FileResponse(STATIC / "drive.html")
 
 
 @app.get("/api/state")
@@ -129,7 +141,7 @@ def records_csv(limit: int = Query(2000, ge=1, le=10000)) -> StreamingResponse:
         "id", "created_at", "slot", "manufacturer", "model", "serial",
         "capacity_bytes", "drive_type", "health_percent", "health_verdict",
         "health_warnings", "wipe_method", "wipe_started_at", "wipe_finished_at",
-        "result", "error", "batch",
+        "result", "error", "batch", "used_bytes_before", "usage_label",
     ]
     w = csv.DictWriter(buf, fieldnames=fields, extrasaction="ignore")
     w.writeheader()
@@ -158,11 +170,17 @@ def blurb(serial: str) -> str:
     lines = [f"{r['manufacturer']} {r['model']} {capacity} {kind}"]
     if r["health_percent"] is not None:
         lines.append(f"Health: {r['health_percent']}% remaining")
-    lines.append(f"SMART/health check: {r['health_verdict']}")
+    verdict = r["health_verdict"] or "UNKNOWN"
+    if verdict in ("SCRAP", "FAIL"):
+        lines.append(f"Grade: SCRAP — not for resale ({verdict})")
+    else:
+        lines.append(f"SMART/health check: {verdict}")
+    if r.get("usage_label"):
+        lines.append(f"Before wipe: {r['usage_label']}")
     if r["result"] == "PASSED":
         date = (r["wipe_finished_at"] or "")[:10]
         lines.append(f"Securely erased ({r['wipe_method'].replace('_', ' ').title()}) "
-                     f"on {date} and verified")
+                     f"on {date} and verified empty")
     else:
         lines.append(f"WIPE RESULT: {r['result']} — not cleared for resale")
     lines.append(f"Serial: {r['serial']} (traceable wipe record on file)")

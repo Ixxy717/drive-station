@@ -56,13 +56,48 @@ Optional:
 Everything is on one LAN URL (printed at startup), for example:
 
 ```
-http://192.168.1.200:8330/        board (kiosk)
-http://192.168.1.200:8330/logs    wipe job log + eBay blurbs
-http://192.168.1.200:8330/files/  characterization reports / text dumps
+http://192.168.1.200:8330/              board (kiosk)
+http://192.168.1.200:8330/logs          wipe job log + eBay blurbs
+http://192.168.1.200:8330/d/<SERIAL>    per-drive listing card + PNG download
+http://192.168.1.200:8330/files/        characterization reports / text dumps
 http://192.168.1.200:8330/api/records.csv
 ```
 
 Use **http://** (not https). Same Wi‑Fi/LAN as the mini PC.
+
+**eBay / listing URL:** after a PASSED wipe, open
+`http://<station-ip>:8330/d/<SERIAL>` (alias `/s/<SERIAL>`). Use **Download PNG**
+for the listing image. Optional nicer hostname: set the mini PC’s hostname to
+`drivestation` and install Avahi (`avahi-daemon`) so phones can use
+`http://drivestation.local:8330/d/<SERIAL>` on the LAN — there is no public
+DNS name unless you add one yourself.
+
+### NVMe health over USB (RTL9210)
+
+Realtek tunnels NVMe admin via SCSI opcode `0xE4` (`smartctl -d sntrealtek`).
+**Identify often works; SMART Get Log Page is firmware-dependent.** Phase 0
+initially probed health *without* `-d sntrealtek` (a miss). Re-check with:
+
+```
+sudo bash tools/nvme_health_probe.sh /dev/sdX
+sudo apt install sg3-utils   # for raw CDB dump
+```
+
+If `Percentage Used` appears, the app will grade wear. If not, the dock
+firmware is blocking Get Log Page — options are firmware update, a known-good
+single-bay RTL9210B reader for grading, or accept UNKNOWN on those docks.
+
+### Pre-wipe data + post-wipe verify
+
+On insert the station probes used space (read-only mount / `lsblk` FSUSED when
+possible, otherwise “partitions / data present”). The READY tile shows e.g.
+`62GB / 256GB used` before you confirm wipe.
+
+After every wipe it **verifies**:
+- **Zero overwrite** — many multi‑MB samples must be all zeros, and no
+  MBR/GPT/filesystem signatures may remain.
+- **ATA secure erase** — drive still identifies, and partition/FS signatures
+  must be gone (full zero-fill is not required; some SSDs return non-zero).
 
 ### Wipe methods (Phase 0 locked)
 

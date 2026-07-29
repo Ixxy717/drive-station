@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Drive record</title>
+<style>
+  :root {
+    --ink: #1b1d20;
+    --muted: #6a6e75;
+    --ok: #178040;
+    --alarm: #c03328;
+    --line: #d4d4cf;
+    --paper: #f7f7f4;
+    --canvas: #34373d;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--canvas); color: var(--ink);
+    font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+    min-height: 100vh; padding: 28px 16px 48px;
+  }
+  .wrap { max-width: 520px; margin: 0 auto; }
+  .nav {
+    display: flex; justify-content: space-between; align-items: center;
+    color: #cdd0d5; font-size: 11px; font-weight: 700; letter-spacing: 1.5px;
+    margin-bottom: 16px;
+  }
+  .nav a { color: #a6a9af; text-decoration: none; }
+  .nav a:hover { color: #fff; }
+  #card {
+    background: var(--paper); border: 1px solid #101113;
+    padding: 28px 26px 24px;
+  }
+  .brand {
+    font-size: 11px; font-weight: 800; letter-spacing: 3px;
+    color: var(--muted); margin-bottom: 18px;
+  }
+  h1 {
+    font-size: 22px; font-weight: 800; line-height: 1.25;
+    margin-bottom: 6px;
+  }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 22px; }
+  .row {
+    display: grid; grid-template-columns: 110px 1fr;
+    gap: 6px 10px; padding: 9px 0;
+    border-top: 1px solid var(--line); font-size: 14px;
+  }
+  .row .k {
+    font-size: 10.5px; font-weight: 700; letter-spacing: .8px;
+    color: var(--muted); text-transform: uppercase; padding-top: 3px;
+  }
+  .row .v { font-weight: 600; overflow-wrap: anywhere; }
+  .mono { font-family: "Cascadia Mono", Consolas, monospace; font-size: 13px; }
+  .ok { color: var(--ok); font-weight: 800; letter-spacing: 1px; }
+  .bad, .scrap { color: var(--alarm); font-weight: 800; letter-spacing: 1px; }
+  .actions {
+    display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px;
+  }
+  button, .btn {
+    font-family: inherit; font-size: 12px; font-weight: 700;
+    letter-spacing: 1.2px; border: 1px solid #101113;
+    background: #1b1d20; color: #fff; padding: 12px 16px; cursor: pointer;
+    text-decoration: none; display: inline-block;
+  }
+  button.secondary, .btn.secondary {
+    background: transparent; color: #cdd0d5; border-color: #6a6e75;
+  }
+  #err {
+    background: #3a1e1c; color: #ffd4d0; border: 1px solid #c03328;
+    padding: 18px; display: none;
+  }
+  .hint { margin-top: 14px; color: #9aa0a8; font-size: 12px; line-height: 1.45; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="nav">
+      <span>DRIVE STATION</span>
+      <span><a href="/">BOARD</a> · <a href="/logs">LOGS</a></span>
+    </div>
+    <div id="err"></div>
+    <div id="card" style="display:none">
+      <div class="brand">WIPE CERTIFICATE</div>
+      <h1 id="title">—</h1>
+      <div class="sub" id="subtitle">—</div>
+      <div id="rows"></div>
+      <div class="actions">
+        <button onclick="downloadPng()">DOWNLOAD PNG</button>
+        <button class="secondary" onclick="copyBlurb()">COPY BLURB</button>
+      </div>
+    </div>
+    <p class="hint">
+      Bookmark pattern: <span class="mono" id="urlHint"></span><br>
+      Optional LAN name: set the mini PC hostname to <span class="mono">drivestation</span>
+      and enable Avahi/mDNS → <span class="mono">http://drivestation.local:8330/d/SERIAL</span>
+    </p>
+  </div>
+
+<script>
+function serialFromPath() {
+  const parts = location.pathname.split("/").filter(Boolean);
+  // /d/SERIAL or /s/SERIAL
+  return decodeURIComponent(parts[1] || "");
+}
+
+function capacityLabel(bytes) {
+  const gb = (bytes || 0) / 1e9;
+  if (gb >= 1000) {
+    const tb = gb / 1000;
+    return Number.isInteger(tb) ? `${tb}TB` : `${tb.toFixed(1)}TB`;
+  }
+  return `${Math.round(gb)}GB`;
+}
+
+function kindLabel(t) {
+  return ({ NVME: "NVMe SSD", SATA_SSD: "SATA SSD", SATA_HDD: "SATA HDD" })[t] || "Drive";
+}
+
+function row(k, v, cls = "") {
+  return `<div class="row"><span class="k">${k}</span><span class="v ${cls}">${v}</span></div>`;
+}
+
+async function load() {
+  const serial = serialFromPath();
+  document.getElementById("urlHint").textContent =
+    `${location.origin}/d/${serial || "<SERIAL>"}`;
+  if (!serial) {
+    showErr("Missing serial in URL.");
+    return;
+  }
+  document.title = `Drive ${serial}`;
+  const res = await fetch(`/api/records?serial=${encodeURIComponent(serial)}`);
+  const data = await res.json();
+  const r = (data.records || [])[0];
+  if (!r) {
+    showErr(`No wipe record for serial ${serial}`);
+    return;
+  }
+  const cap = capacityLabel(r.capacity_bytes);
+  const kind = kindLabel(r.drive_type);
+  document.getElementById("title").textContent =
+    `${r.manufacturer} ${r.model}`;
+  document.getElementById("subtitle").textContent = `${cap} ${kind}`;
+
+  const passed = r.result === "PASSED";
+  let html = "";
+  html += row("Serial", r.serial, "mono");
+  html += row("Capacity", cap);
+  const hv = r.health_verdict || "—";
+  const scrap = hv === "SCRAP" || hv === "FAIL";
+  if (r.health_percent != null) {
+    html += row("Health", `${r.health_percent}% · ${hv}`, scrap ? "scrap" : "");
+  } else {
+    html += row("Health", hv, scrap ? "scrap" : "");
+  }
+  if (r.usage_label) html += row("Before wipe", r.usage_label);
+  html += row("Method", (r.wipe_method || "").replaceAll("_", " "));
+  html += row("Wiped", (r.wipe_finished_at || r.wipe_started_at || "").slice(0, 10) || "—");
+  html += row("Result", passed ? "PASSED · VERIFIED EMPTY" : (r.result || "—"),
+             passed ? "ok" : "bad");
+  html += row("Record #", String(r.id), "mono");
+  document.getElementById("rows").innerHTML = html;
+  document.getElementById("card").style.display = "block";
+  window.__record = r;
+}
+
+function showErr(msg) {
+  const el = document.getElementById("err");
+  el.style.display = "block";
+  el.textContent = msg;
+}
+
+async function copyBlurb() {
+  const r = window.__record;
+  if (!r) return;
+  const res = await fetch(`/api/records/${encodeURIComponent(r.serial)}/blurb`);
+  const text = res.ok ? await res.text() : r.serial;
+  await navigator.clipboard.writeText(text);
+}
+
+async function downloadPng() {
+  const card = document.getElementById("card");
+  const r = window.__record;
+  if (!card || !r) return;
+  const w = 1000, h = 1000;
+  const canvas = document.createElement("canvas");
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#f7f7f4";
+  ctx.fillRect(0, 0, w, h);
+  ctx.strokeStyle = "#101113";
+  ctx.lineWidth = 4;
+  ctx.strokeRect(2, 2, w - 4, h - 4);
+
+  ctx.fillStyle = "#6a6e75";
+  ctx.font = "700 28px Segoe UI, sans-serif";
+  ctx.fillText("DRIVE STATION  ·  WIPE CERTIFICATE", 64, 90);
+
+  ctx.fillStyle = "#1b1d20";
+  ctx.font = "800 54px Segoe UI, sans-serif";
+  const title = `${r.manufacturer} ${r.model}`;
+  wrapText(ctx, title, 64, 180, w - 128, 62);
+
+  ctx.fillStyle = "#6a6e75";
+  ctx.font = "600 32px Segoe UI, sans-serif";
+  ctx.fillText(`${capacityLabel(r.capacity_bytes)}  ${kindLabel(r.drive_type)}`, 64, 340);
+
+  const lines = [
+    ["SERIAL", r.serial],
+    ["HEALTH", r.health_percent != null
+      ? `${r.health_percent}%  ${r.health_verdict}` : (r.health_verdict || "—")],
+    ["BEFORE", r.usage_label || "—"],
+    ["METHOD", (r.wipe_method || "").replaceAll("_", " ")],
+    ["WIPED", (r.wipe_finished_at || "").slice(0, 10) || "—"],
+    ["RESULT", r.result === "PASSED" ? "PASSED · VERIFIED EMPTY" : (r.result || "—")],
+  ];
+  let y = 430;
+  for (const [k, v] of lines) {
+    ctx.fillStyle = "#6a6e75";
+    ctx.font = "700 24px Segoe UI, sans-serif";
+    ctx.fillText(k, 64, y);
+    ctx.fillStyle = (k === "RESULT" && r.result === "PASSED") ? "#178040" : "#1b1d20";
+    ctx.font = "700 34px Cascadia Mono, Consolas, monospace";
+    wrapText(ctx, String(v || "—"), 280, y - 8, w - 340, 40);
+    y += 78;
+  }
+
+  ctx.fillStyle = "#9aa0a8";
+  ctx.font = "600 22px Segoe UI, sans-serif";
+  ctx.fillText(`Record #${r.id}  ·  ${location.host}`, 64, h - 56);
+
+  const a = document.createElement("a");
+  a.download = `drive-${r.serial}.png`;
+  a.href = canvas.toDataURL("image/png");
+  a.click();
+}
+
+function wrapText(ctx, text, x, y, maxWidth, lineHeight) {
+  const words = String(text).split(/\s+/);
+  let line = "";
+  let yy = y;
+  for (const word of words) {
+    const test = line ? `${line} ${word}` : word;
+    if (ctx.measureText(test).width > maxWidth && line) {
+      ctx.fillText(line, x, yy);
+      line = word;
+      yy += lineHeight;
+    } else {
+      line = test;
+    }
+  }
+  if (line) ctx.fillText(line, x, yy);
+}
+
+load();
+</script>
+</body>
+</html>

@@ -62,7 +62,9 @@
   /* ---------- dock sections ---------- */
   #groups {
     display: grid; grid-template-columns: repeat(4, 1fr);
-    gap: 16px; padding: 18px 22px;
+    gap: 16px; padding: 18px 22px 28px;
+    min-height: calc(100vh - 46px);
+    align-content: start;
   }
   @media (max-width: 1150px) { #groups { grid-template-columns: repeat(2, 1fr); } }
   .group { background: var(--section); border: 1px solid var(--hair-dk); padding: 14px; }
@@ -78,7 +80,7 @@
   /* ---------- slot cards: fixed footprint, never shifts ---------- */
   .tile {
     display: flex; flex-direction: column;
-    height: 282px; overflow: hidden;
+    height: 348px; overflow: hidden;
   }
   .tile + .tile { margin-top: 14px; }
   .tile.solid { background: var(--card); border: 1px solid #101113; }
@@ -117,7 +119,13 @@
   }
   .v.h-GOOD { color: var(--ok); font-weight: 700; }
   .v.h-WARNING { color: #96660a; font-weight: 700; }
-  .v.h-FAIL { color: var(--alarm); font-weight: 700; }
+  .v.h-UNKNOWN { color: #96660a; font-weight: 700; }
+  .v.h-SCRAP, .v.h-FAIL { color: var(--alarm); font-weight: 700; }
+  a.listing {
+    color: var(--active); font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 12px; font-weight: 700; text-decoration: none;
+  }
+  a.listing:hover { text-decoration: underline; }
 
   .nodevice {
     flex: 1; display: flex; align-items: center; justify-content: center;
@@ -259,6 +267,9 @@ function tileHTML(s, busyByGroup) {
     body += row("Model", `${d.manufacturer} ${d.model}`, "model");
     body += row("Serial", d.serial, "mono");
     body += row("Capacity", d.capacity);
+    if (s.usage && s.usage.label) {
+      body += row("Data", s.usage.label);
+    }
     if (h) {
       const pct = h.percent === null ? "" : `${h.percent}% `;
       body += row("Health", `${pct}${h.verdict}`, `h-${h.verdict}`);
@@ -269,6 +280,9 @@ function tileHTML(s, busyByGroup) {
     }
     if (s.wipe_method && s.status !== "READY") {
       body += row("Method", s.wipe_method.replaceAll("_", " "), "mono");
+    }
+    if (s.status === "PASSED") {
+      body += row("Listing", `<a class="listing" href="/d/${encodeURIComponent(d.serial)}">/d/${d.serial}</a>`);
     }
     body += `</div>`;
   } else if (s.status === "DETECTED" || s.status === "CHECKING") {
@@ -288,7 +302,10 @@ function tileHTML(s, busyByGroup) {
 
   let ask = "";
   if (s.status === "READY" && s.awaiting_confirm) {
-    ask = `<div class="ask"><div class="q">Secure wipe this drive?</div>
+    const dataQ = s.usage && s.usage.label
+      ? `Wipe this drive? (${s.usage.label})`
+      : "Secure wipe this drive?";
+    ask = `<div class="ask"><div class="q">${dataQ}</div>
       <div class="buttons">
         <button class="act yes" onclick="post('/api/slots/${s.slot_id}/wipe')">WIPE</button>
         <button class="act no" onclick="post('/api/slots/${s.slot_id}/decline')">SKIP</button>

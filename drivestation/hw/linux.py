@@ -17,6 +17,7 @@ from .identify import ata_security_state, read_health, read_identity
 from .slots_config import (SlotConfig, SlotsConfigError, load_slots_config,
                            path_to_slot)
 from .sysfs import RunCmd, BlockDevice, default_run_cmd, scan_allowlisted
+from .usage import read_usage
 from .wipe_linux import (ata_enhanced_erase, verify_ata_erase, verify_zeros,
                          zero_overwrite)
 
@@ -151,6 +152,12 @@ class LinuxBackend(HardwareBackend):
         info = read_identity(path, self._slot_cfg(slot_id), self._run)
         dtype = info.drive_type if info else DriveType.UNKNOWN
         return read_health(path, self._slot_cfg(slot_id), dtype, self._run)
+
+    def read_usage(self, slot_id: str) -> dict:
+        path = self._require_dev(slot_id)
+        info = read_identity(path, self._slot_cfg(slot_id), self._run)
+        cap = info.capacity_bytes if info else 0
+        return read_usage(path, cap, self._run).to_dict()
 
     def supported_wipe_methods(self, slot_id: str) -> list[WipeMethod]:
         cfg = self._slot_cfg(slot_id)

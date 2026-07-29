@@ -103,9 +103,9 @@ def test_nvme_health_unavailable_through_bridge():
     raw = read_health("/dev/sdd", _rtl(), DriveType.NVME, run)
     info = DriveInfo("WD", "SN720", "X", 100, DriveType.NVME)
     result = evaluate_health(info, raw)
-    assert result.verdict == HealthVerdict.GOOD
+    assert result.verdict == HealthVerdict.UNKNOWN
     assert result.percent is None
-    assert any("unavailable" in w.lower() for w in result.warnings)
+    assert any("unknown" in w.lower() or "blocks" in w.lower() for w in result.warnings)
 
 
 def test_capacity_falls_back_to_lsblk_when_smart_omits_it():

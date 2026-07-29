@@ -1,24 +1,25 @@
-"""Health scoring policy.
+"""Health scoring / scrap policy for resale grading.
 
-IMPORTANT: the numeric thresholds below are PLACEHOLDERS, not finalized
-business rules. They exist so the pipeline works end to end; tune them once
-real drives have been processed. Everything reads from THRESHOLDS so there is
-exactly one place to change.
+Verdicts used on the board:
+  GOOD  — fine to wipe and list
+  SCRAP — do not resell (still may be wiped for destruction)
+  FAIL  — SMART/media hard failure (treated like scrap for resale)
 """
 from __future__ import annotations
 
 from ..models import DriveInfo, DriveType, HealthResult, HealthVerdict
 
 THRESHOLDS = {
-    # SSD life remaining (percent) — below these values:
-    "ssd_warning_below": 30,
-    "ssd_fail_below": 10,
-    # HDD sector counts:
-    "hdd_realloc_warning_at": 1,
-    "hdd_realloc_fail_at": 50,
+    # SSD / NVMe life remaining (%). At or below → SCRAP.
+    "ssd_scrap_at_or_below": 70,
+    # HDD display score. At or below → SCRAP.
+    "hdd_scrap_at_or_below": 80,
+    # HDD reallocated sectors. Strictly more than this → SCRAP.
+    "hdd_realloc_scrap_above": 5,
+    # Immediate scrap on these HDD counts:
     "hdd_pending_fail_at": 1,
     "hdd_uncorrectable_fail_at": 1,
-    # HDD score deduction per reallocated sector (for the display percentage):
+    # HDD score deduction per reallocated sector (display % only):
     "hdd_realloc_penalty": 2,
 }
 
@@ -33,82 +34,93 @@ def evaluate_health(info: DriveInfo, raw: dict) -> HealthResult:
     return HealthResult(HealthVerdict.UNKNOWN, warnings=["Unknown drive type"], raw=raw)
 
 
-def _ssd_verdict(percent: int, warnings: list[str]) -> HealthVerdict:
-    if percent < THRESHOLDS["ssd_fail_below"]:
-        warnings.append("Excessive wear")
-        return HealthVerdict.FAIL
-    if percent < THRESHOLDS["ssd_warning_below"]:
-        warnings.append("High wear")
-        return HealthVerdict.WARNING
+def _ssd_life_verdict(percent: int, warnings: list[str]) -> HealthVerdict:
+    if percent <= THRESHOLDS["ssd_scrap_at_or_below"]:
+        warnings.append("SCRAP — wear at or below 70%")
+        return HealthVerdict.SCRAP
     return HealthVerdict.GOOD
 
 
 def _evaluate_nvme(raw: dict) -> HealthResult:
     warnings: list[str] = []
-    if "percentage_used" not in raw:
-        # Common through USB NVMe bridges that block SMART log pages.
-        if raw.get("media_errors", 0) > 0:
-            return HealthResult(
-                HealthVerdict.FAIL, percent=None,
-                warnings=[f"Media errors: {raw['media_errors']}"], raw=raw)
-        if raw.get("critical_warning", 0) != 0:
-            return HealthResult(
-                HealthVerdict.FAIL, percent=None,
-                warnings=["NVMe critical warning flag set"], raw=raw)
-        return HealthResult(
-            HealthVerdict.GOOD, percent=None,
-            warnings=["Wear level unavailable through USB bridge"], raw=raw)
 
-    percent = max(0, min(100, 100 - int(raw.get("percentage_used", 0))))
-    verdict = _ssd_verdict(percent, warnings)
     if raw.get("media_errors", 0) > 0:
-        warnings.append(f"Media errors: {raw['media_errors']}")
-        verdict = HealthVerdict.FAIL
+        return HealthResult(
+            HealthVerdict.SCRAP, percent=None,
+            warnings=[f"SCRAP — media errors: {raw['media_errors']}"], raw=raw)
     if raw.get("critical_warning", 0) != 0:
-        warnings.append("NVMe critical warning flag set")
-        verdict = HealthVerdict.FAIL
-    return HealthResult(verdict, percent=percent, warnings=warnings, raw=raw)
+        return HealthResult(
+            HealthVerdict.SCRAP, percent=None,
+            warnings=["SCRAP — NVMe critical warning"], raw=raw)
+
+    spare = raw.get("available_spare")
+    if spare is not None and int(spare) < 10:
+        return HealthResult(
+            HealthVerdict.SCRAP, percent=int(spare) if "percentage_used" not in raw else None,
+            warnings=[f"SCRAP — available spare {spare}%"], raw=raw)
+
+    if "percentage_used" in raw:
+        percent = max(0, min(100, 100 - int(raw["percentage_used"])))
+        verdict = _ssd_life_verdict(percent, warnings)
+        return HealthResult(verdict, percent=percent, warnings=warnings, raw=raw)
+
+    # Partial health (common when bridge returns log with spare but wear quirks)
+    if spare is not None:
+        warnings.append(f"Available spare {spare}% (wear % not reported)")
+        return HealthResult(
+            HealthVerdict.GOOD, percent=None, warnings=warnings, raw=raw)
+
+    return HealthResult(
+        HealthVerdict.UNKNOWN, percent=None,
+        warnings=["Health unknown — USB bridge blocks NVMe SMART"], raw=raw)
 
 
 def _evaluate_sata_ssd(raw: dict) -> HealthResult:
     warnings: list[str] = []
     if raw.get("smart_passed") is False:
-        return HealthResult(HealthVerdict.FAIL, warnings=["SMART failure"], raw=raw)
+        return HealthResult(
+            HealthVerdict.SCRAP, warnings=["SCRAP — SMART failure"], raw=raw)
     percent = raw.get("percent_life")
     if percent is None:
-        # Vendor does not expose a usable wear attribute; SMART pass alone.
-        return HealthResult(HealthVerdict.GOOD, percent=None,
-                            warnings=["Wear level unavailable for this model"],
-                            raw=raw)
+        return HealthResult(
+            HealthVerdict.UNKNOWN, percent=None,
+            warnings=["Health unknown — no wear attribute from this drive"],
+            raw=raw)
     percent = max(0, min(100, int(percent)))
-    verdict = _ssd_verdict(percent, warnings)
+    verdict = _ssd_life_verdict(percent, warnings)
     return HealthResult(verdict, percent=percent, warnings=warnings, raw=raw)
 
 
 def _evaluate_hdd(raw: dict) -> HealthResult:
     warnings: list[str] = []
     if raw.get("smart_passed") is False:
-        return HealthResult(HealthVerdict.FAIL, warnings=["SMART failure"], raw=raw)
+        return HealthResult(
+            HealthVerdict.SCRAP, warnings=["SCRAP — SMART failure"], raw=raw)
 
     realloc = int(raw.get("reallocated_sectors", 0))
     pending = int(raw.get("pending_sectors", 0))
     uncorrectable = int(raw.get("uncorrectable_sectors", 0))
 
-    verdict = HealthVerdict.GOOD
-    if pending >= THRESHOLDS["hdd_pending_fail_at"]:
-        warnings.append(f"Pending sectors: {pending}")
-        verdict = HealthVerdict.FAIL
-    if uncorrectable >= THRESHOLDS["hdd_uncorrectable_fail_at"]:
-        warnings.append(f"Uncorrectable sectors: {uncorrectable}")
-        verdict = HealthVerdict.FAIL
-    if realloc >= THRESHOLDS["hdd_realloc_fail_at"]:
-        warnings.append(f"Reallocated sectors: {realloc}")
-        verdict = HealthVerdict.FAIL
-    elif realloc >= THRESHOLDS["hdd_realloc_warning_at"]:
-        warnings.append(f"Reallocated sectors: {realloc}")
-        if verdict == HealthVerdict.GOOD:
-            verdict = HealthVerdict.WARNING
-
     percent = max(0, 100 - realloc * THRESHOLDS["hdd_realloc_penalty"]
                   - (30 if pending else 0) - (30 if uncorrectable else 0))
-    return HealthResult(verdict, percent=percent, warnings=warnings, raw=raw)
+
+    scrap_reasons: list[str] = []
+    if pending >= THRESHOLDS["hdd_pending_fail_at"]:
+        scrap_reasons.append(f"pending sectors: {pending}")
+    if uncorrectable >= THRESHOLDS["hdd_uncorrectable_fail_at"]:
+        scrap_reasons.append(f"uncorrectable sectors: {uncorrectable}")
+    if realloc > THRESHOLDS["hdd_realloc_scrap_above"]:
+        scrap_reasons.append(f"reallocated sectors: {realloc} (over 5)")
+    if percent <= THRESHOLDS["hdd_scrap_at_or_below"]:
+        scrap_reasons.append(f"health {percent}% (at or below 80%)")
+
+    if scrap_reasons:
+        warnings.append("SCRAP — " + "; ".join(scrap_reasons))
+        return HealthResult(HealthVerdict.SCRAP, percent=percent,
+                            warnings=warnings, raw=raw)
+
+    if realloc > 0:
+        warnings.append(f"Reallocated sectors: {realloc}")
+
+    return HealthResult(HealthVerdict.GOOD, percent=percent,
+                        warnings=warnings, raw=raw)

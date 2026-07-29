@@ -9,7 +9,7 @@ from .health.policy import evaluate_health
 from .hw.base import (DriveDisconnected, HardwareBackend, HardwareError,
                       VerifyError, WipeError)
 from .models import (SLOT_LAYOUT, DriveInfo, HealthVerdict, SlotState,
-                     SlotStatus, WipeMethod)
+                     SlotStatus, UsageSnapshot, WipeMethod)
 from .wipe.methods import choose_method
 
 log = logging.getLogger("drivestation")
@@ -54,6 +54,7 @@ class Station:
             slot.status = SlotStatus.DETECTED
             slot.drive = None
             slot.health = None
+            slot.usage = None
             slot.progress = 0.0
             slot.message = ""
             slot.awaiting_confirm = False
@@ -79,6 +80,7 @@ class Station:
                 slot.status = SlotStatus.EMPTY
                 slot.drive = None
                 slot.health = None
+                slot.usage = None
                 slot.progress = 0.0
                 slot.message = ""
                 slot.awaiting_confirm = False
@@ -101,14 +103,26 @@ class Station:
                 return
             raw = self.backend.read_health(slot_id)
             health = evaluate_health(info, raw)
+            usage_raw = self.backend.read_usage(slot_id) or {}
+            usage = None
+            if usage_raw:
+                usage = UsageSnapshot(
+                    capacity_bytes=int(usage_raw.get("capacity_bytes")
+                                       or info.capacity_bytes or 0),
+                    used_bytes=usage_raw.get("used_bytes"),
+                    has_partitions=bool(usage_raw.get("has_partitions")),
+                    label=str(usage_raw.get("label") or ""),
+                    detail=str(usage_raw.get("detail") or ""),
+                )
             with self._lock:
                 slot.drive = info
                 slot.health = health
+                slot.usage = usage
                 slot.status = SlotStatus.READY
                 slot.awaiting_confirm = True
-                if health.verdict == HealthVerdict.FAIL:
-                    slot.message = "Health check FAILED — " + \
-                        (health.warnings[0] if health.warnings else "see log")
+                if health.verdict in (HealthVerdict.SCRAP, HealthVerdict.FAIL):
+                    slot.message = health.warnings[0] if health.warnings \
+                        else "SCRAP — do not resell"
                 else:
                     slot.message = ""
         except DriveDisconnected:
@@ -189,6 +203,7 @@ class Station:
                 return
 
             health = slot.health
+            usage = slot.usage
             job_id = self.joblog.start_job(
                 slot=slot_id, manufacturer=bound.manufacturer,
                 model=bound.model, serial=bound.serial,
@@ -197,7 +212,9 @@ class Station:
                 health_percent=health.percent if health else None,
                 health_verdict=health.verdict.value if health else "UNKNOWN",
                 health_warnings=health.warnings if health else [],
-                wipe_method=method.value, batch=self.batch)
+                wipe_method=method.value, batch=self.batch,
+                used_bytes_before=usage.used_bytes if usage else None,
+                usage_label=usage.label if usage else None)
 
             with self._lock:
                 slot.status = SlotStatus.WIPING
@@ -236,7 +253,9 @@ class Station:
             with self._lock:
                 slot.status = SlotStatus.PASSED
                 slot.progress = 1.0
-                slot.message = "Wiped and verified — remove drive"
+                slot.message = (
+                    f"Wiped and verified — listing /d/{bound.serial}"
+                )
 
         except DriveDisconnected:
             self._fail(slot, "Drive disconnected during wipe",

@@ -180,8 +180,15 @@ characterize() {  # characterize <slot> <dev> <report>
         run_logged "$report" smartctl -d "$dtype" -i "$devpath"
     done
 
-    section "SMART health/attributes" "$report"
+    section "SMART health/attributes (plain — often fails on USB NVMe)" "$report"
     run_logged "$report" smartctl -H -A -l error "$devpath"
+    # Realtek/ASMedia/JMicron tunnels: health MUST use the matching -d type.
+    section "SMART health -d sntrealtek (RTL9210)" "$report"
+    run_logged "$report" smartctl -a -d sntrealtek "$devpath"
+    section "SMART health -d sntasmedia" "$report"
+    run_logged "$report" smartctl -a -d sntasmedia "$devpath"
+    section "SMART health -d sntjmicron" "$report"
+    run_logged "$report" smartctl -a -d sntjmicron "$devpath"
 
     if [[ "$dev" == nvme* ]]; then
         section "NVMe controller (SANICAP/FNA decide sanitize vs format)" "$report"

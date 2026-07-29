@@ -200,6 +200,165 @@ def _attr_raw(table: list, name_substr: str) -> Optional[int]:
     return None
 
 
+def _parse_nvme_health_text(text: str) -> dict[str, Any]:
+    """Parse smartctl text when JSON log page is missing (common on RTL9210)."""
+    raw: dict[str, Any] = {}
+    m = re.search(r"Percentage Used:\s*(\d+)\s*%?", text, re.I)
+    if m:
+        raw["percentage_used"] = int(m.group(1))
+    m = re.search(r"Media and Data Integrity Errors:\s*(\d+)", text, re.I)
+    if m:
+        raw["media_errors"] = int(m.group(1))
+    m = re.search(r"Critical Warning:\s*0x([0-9a-fA-F]+)", text, re.I)
+    if m:
+        raw["critical_warning"] = int(m.group(1), 16)
+    else:
+        m = re.search(r"Critical Warning:\s*(\d+)", text, re.I)
+        if m:
+            raw["critical_warning"] = int(m.group(1))
+    m = re.search(r"Available Spare:\s*(\d+)\s*%?", text, re.I)
+    if m:
+        raw["available_spare"] = int(m.group(1))
+    m = re.search(r"Temperature:\s*(\d+)\s*Celsius", text, re.I)
+    if m:
+        raw["temperature_c"] = int(m.group(1))
+    return raw
+
+
+def _merge_nvme_log(raw: dict[str, Any], log: dict) -> dict[str, Any]:
+    if not log:
+        return raw
+    if "percentage_used" in log:
+        raw["percentage_used"] = int(log["percentage_used"])
+    if "media_errors" in log:
+        raw["media_errors"] = int(log["media_errors"])
+    cw = log.get("critical_warning")
+    if cw is not None:
+        raw["critical_warning"] = int(cw) if not isinstance(cw, int) else cw
+    if "available_spare" in log:
+        raw["available_spare"] = int(log["available_spare"])
+    temp = log.get("temperature")
+    if isinstance(temp, int):
+        raw["temperature_c"] = temp
+    elif isinstance(temp, dict) and "current" in temp:
+        try:
+            raw["temperature_c"] = int(temp["current"])
+        except (TypeError, ValueError):
+            pass
+    return raw
+
+
+def _nvme_health_useful(raw: dict[str, Any]) -> bool:
+    return any(k in raw for k in (
+        "percentage_used", "available_spare", "critical_warning", "media_errors",
+    ))
+
+
+def _read_nvme_health_usb(dev_path: str, run: RunCmd) -> dict[str, Any]:
+    """Best-effort NVMe SMART through Realtek USB bridges (sntrealtek tunnel).
+
+    Phase 0 characterization mistakenly ran health WITHOUT ``-d sntrealtek``.
+    Identify often works; Get Log Page (wear) needs the tunnel and working
+    dock firmware. We try every known smartctl form, then text parse.
+    """
+    raw: dict[str, Any] = {}
+    attempts = (
+        ["-a", "-d", "sntrealtek"],
+        ["-x", "-d", "sntrealtek"],
+        ["-A", "-H", "-d", "sntrealtek"],
+        ["-a", "-d", "auto"],
+        ["-a", "-d", "sntrealtek,/sat"],
+        ["-l", "ssd", "-d", "sntrealtek"],
+    )
+    for extra in attempts:
+        nvme = _smartctl_json(dev_path, extra, run)
+        if not nvme:
+            continue
+        log = nvme.get("nvme_smart_health_information_log") or {}
+        raw = _merge_nvme_log(raw, log)
+        # SCSI endurance indicator (rare, but cheap to check)
+        for key in ("scsi_percentage_used_endurance_indicator",
+                    "percentage_used_endurance_indicator"):
+            if key in nvme and "percentage_used" not in raw:
+                try:
+                    raw["percentage_used"] = int(nvme[key])
+                except (TypeError, ValueError):
+                    pass
+        if "percentage_used" in raw:
+            return raw
+        if _nvme_health_useful(raw):
+            # Keep going — prefer percentage_used if a later attempt has it
+            continue
+
+    for extra in (
+        ["-a", "-d", "sntrealtek"],
+        ["-x", "-d", "sntrealtek"],
+        ["-a", "-d", "auto"],
+        ["-H", "-A", "-d", "sntrealtek"],
+    ):
+        code, out, err = run(["smartctl", *extra, dev_path])
+        text = (out or "") + "\n" + (err or "")
+        parsed = _parse_nvme_health_text(text)
+        if "percentage_used" in parsed:
+            return parsed
+        for k, v in parsed.items():
+            raw.setdefault(k, v)
+        if _nvme_health_useful(raw) and "percentage_used" in raw:
+            return raw
+
+    # Raw Realtek tunnel via sg_raw (same CDB smartmontools uses)
+    raw.update(_sg_raw_realtek_smart(dev_path, run))
+    return raw
+
+
+def _sg_raw_realtek_smart(dev_path: str, run: RunCmd) -> dict[str, Any]:
+    """SCSI CDB 0xE4 NVMe Get Log Page 0x02 — parse SMART bytes ourselves."""
+    # CDB: E4 | size_le16=0x0200 | opcode=02 | cdw10_lo=LID=02
+    code, out, err = run([
+        "sg_raw", "-r", "512", "-b", dev_path,
+        "E4", "00", "02", "02", "02",
+        "00", "00", "00", "00", "00", "00", "00", "00", "00", "00", "00",
+    ])
+    if code != 0:
+        return {}
+    text = (out or "") + "\n" + (err or "")
+    # Refuse non-sg_raw chatter (JSON mocks, smartctl dumps, etc.)
+    if "smart_status" in text or text.lstrip().startswith("{"):
+        return {}
+    blob = b""
+    if out and ("\x00" in out[:32] or (len(out) >= 512 and "SCSI" not in out[:40])):
+        blob = out.encode("latin-1", errors="ignore") if isinstance(out, str) else out
+    if len(blob) < 16:
+        m = re.search(
+            r"Received\s+\d+\s+bytes.*?((?:[0-9a-fA-F]{2}\s+){32,})",
+            text, re.S | re.I)
+        if not m:
+            return {}
+        hex_bytes = re.findall(r"[0-9a-fA-F]{2}", m.group(1))
+        if len(hex_bytes) < 16:
+            return {}
+        blob = bytes(int(h, 16) for h in hex_bytes[:512])
+    if len(blob) < 16:
+        return {}
+
+    # Sanity: available spare is 0-100; temperature Kelvin usually ~280-340
+    spare = blob[3]
+    kelvin = int.from_bytes(blob[1:3], "little")
+    if spare > 100 and not (200 < kelvin < 400):
+        return {}
+
+    raw: dict[str, Any] = {
+        "critical_warning": blob[0],
+        "available_spare": spare,
+        "percentage_used": blob[5],
+    }
+    if len(blob) >= 96:
+        raw["media_errors"] = int.from_bytes(blob[80:96], "little")
+    if 200 < kelvin < 400:
+        raw["temperature_c"] = kelvin - 273
+    return raw
+
+
 def read_health(
     dev_path: str,
     slot: SlotConfig,
@@ -209,21 +368,7 @@ def read_health(
     raw: dict[str, Any] = {}
 
     if drive_type == DriveType.NVME or slot.bridge == "rtl9210":
-        nvme = _smartctl_json(dev_path, ["-A", "-H", "-d", "sntrealtek"], run)
-        log = {}
-        if nvme:
-            log = nvme.get("nvme_smart_health_information_log") or {}
-        if log:
-            if "percentage_used" in log:
-                raw["percentage_used"] = int(log["percentage_used"])
-            if "media_errors" in log:
-                raw["media_errors"] = int(log["media_errors"])
-            cw = log.get("critical_warning")
-            if cw is not None:
-                raw["critical_warning"] = int(cw) if not isinstance(cw, int) else cw
-            return raw
-        # Fallback: no NVMe SMART through bridge
-        return raw
+        return _read_nvme_health_usb(dev_path, run)
 
     health = _smartctl_json(dev_path, ["-A", "-H", "-d", "sat"], run) \
         or _smartctl_json(dev_path, ["-A", "-H"], run) or {}

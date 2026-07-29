@@ -26,6 +26,8 @@ class SimDrive:
     health_raw: dict = field(default_factory=dict)
     faults: SimFaults = field(default_factory=SimFaults)
     identity_reads: int = 0
+    # Pre-wipe used bytes for the board ("62 / 256 GB used")
+    used_bytes: Optional[int] = 48_000_000_000
 
 
 class SimulatorBackend(HardwareBackend):
@@ -85,6 +87,28 @@ class SimulatorBackend(HardwareBackend):
 
     def read_health(self, slot_id: str) -> dict:
         return dict(self._drive(slot_id).health_raw)
+
+    def read_usage(self, slot_id: str) -> dict:
+        drive = self._drive(slot_id)
+        cap = drive.info.capacity_bytes
+        used = drive.used_bytes
+        if used is None:
+            return {
+                "capacity_bytes": cap,
+                "used_bytes": None,
+                "has_partitions": True,
+                "label": f"Data present / {drive.info.capacity_label}",
+                "detail": "Simulated unreadable filesystem",
+            }
+        gb_u = used / 1_000_000_000
+        used_lbl = f"{gb_u:.0f}GB" if gb_u >= 10 else f"{gb_u:.1f}GB"
+        return {
+            "capacity_bytes": cap,
+            "used_bytes": used,
+            "has_partitions": used > 0,
+            "label": f"{used_lbl} / {drive.info.capacity_label} used",
+            "detail": "Simulated filesystem usage",
+        }
 
     def supported_wipe_methods(self, slot_id: str) -> list[WipeMethod]:
         drive = self._drive(slot_id)

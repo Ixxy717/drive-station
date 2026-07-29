@@ -65,10 +65,13 @@ def zero_overwrite(
     if size <= 0:
         raise WipeError(f"cannot determine size of {dev_path}")
 
-    # Use dd with status=progress; parse bytes written from stderr.
+    # Exact block count so dd usually exits 0. Still treat ENOSPC after a
+    # full-size write as success — classic "filled the whole disk" dd quirk.
+    bs = 16 * 1024 * 1024
+    count = max(1, (size + bs - 1) // bs)
     argv = [
-        "dd", f"if=/dev/zero", f"of={dev_path}",
-        "bs=16M", "conv=fsync", "status=progress",
+        "dd", "if=/dev/zero", f"of={dev_path}",
+        f"bs={bs}", f"count={count}", "conv=fsync", "status=progress",
     ]
     import subprocess
     try:
@@ -79,6 +82,7 @@ def zero_overwrite(
         raise WipeError("dd not found") from exc
 
     last_frac = 0.0
+    written = 0
     stderr_data = []
     assert proc.stderr is not None
     while True:
@@ -95,7 +99,7 @@ def zero_overwrite(
         # dd progress: "123456789 bytes (123 MB, 117 MiB) copied, ..."
         m = re.search(r"(\d+)\s+bytes", line.replace(",", ""))
         if m and size > 0:
-            written = int(m.group(1))
+            written = max(written, int(m.group(1)))
             frac = min(0.99, written / size)
             if frac >= last_frac:
                 last_frac = frac
@@ -104,19 +108,82 @@ def zero_overwrite(
     rc = proc.wait()
     if not present():
         raise DriveDisconnected(f"{dev_path} disappeared during overwrite")
+    err_tail = "".join(stderr_data)[-800:]
     if rc != 0:
-        raise WipeError(f"dd failed (exit {rc}): {''.join(stderr_data)[-500:]}")
+        filled = written >= size or (
+            "No space left" in err_tail and written >= int(size * 0.999)
+        )
+        if filled:
+            log.info(
+                "dd exited %s after writing %s/%s bytes — treating as full wipe OK",
+                rc, written, size,
+            )
+        else:
+            raise WipeError(f"dd failed (exit {rc}): {err_tail}")
     progress(1.0)
+
+
+_FS_MAGICS = (
+    b"EFI PART",
+    b"NTFS    ",
+    b"EXFAT   ",
+    b"XFSB",
+    b"HV\xd1\xd1",
+    b"RRaA",
+    b"\x53\xef",  # ext superblock magic (little-endian at +0x438; also scanned raw)
+)
+
+
+def _read_slice(dev_path: str, offset: int, length: int) -> bytes:
+    fd = os.open(dev_path, os.O_RDONLY)
+    try:
+        os.lseek(fd, offset, os.SEEK_SET)
+        return os.read(fd, length)
+    finally:
+        os.close(fd)
+
+
+def verify_no_filesystem(
+    dev_path: str,
+    run: RunCmd = default_run_cmd,
+) -> None:
+    """Fail if partition table / common FS signatures remain after wipe."""
+    size = _device_size_bytes(dev_path, run)
+    if size <= 0:
+        raise VerifyError(f"cannot size {dev_path} for verify")
+    # Head + GPT backup near end + a couple mid samples
+    regions = [0]
+    if size > 2 * 1024 * 1024:
+        regions.append(max(0, size - 2 * 1024 * 1024))
+    regions.append(max(0, size // 3))
+    regions.append(max(0, (2 * size) // 3))
+
+    for off in regions:
+        try:
+            data = _read_slice(dev_path, off, 2 * 1024 * 1024)
+        except OSError as exc:
+            raise VerifyError(f"verify read failed at {off}: {exc}") from exc
+        if not data:
+            raise VerifyError(f"short verify read at offset {off}")
+        if off == 0 and len(data) >= 512 and data[510:512] == b"\x55\xaa":
+            parts = data[446:510]
+            if any(parts[i + 4] != 0 for i in range(0, 64, 16)):
+                raise VerifyError("MBR partition table still present after wipe")
+        for magic in _FS_MAGICS:
+            if magic in data:
+                raise VerifyError(
+                    f"filesystem signature {magic!r} still present after wipe"
+                )
 
 
 def verify_zeros(
     dev_path: str,
     progress: ProgressCallback,
     run: RunCmd = default_run_cmd,
-    samples: int = 6,
-    chunk: int = 1024 * 1024,
+    samples: int = 12,
+    chunk: int = 2 * 1024 * 1024,
 ) -> None:
-    """Read sample regions; all bytes must be zero."""
+    """Sample many regions — all must be zero — then confirm no FS signatures."""
     size = _device_size_bytes(dev_path, run)
     if size <= 0:
         raise VerifyError(f"cannot size {dev_path} for verify")
@@ -127,9 +194,16 @@ def verify_zeros(
     if size > chunk:
         offsets.append(max(0, size // 2 - chunk // 2))
         offsets.append(max(0, size - chunk))
-    # a few deterministic mid points
-    for i in range(samples - len(offsets)):
+    for i in range(max(0, samples - len(offsets))):
         offsets.append(int(size * (i + 1) / (samples + 1)))
+    # de-dupe while preserving order
+    seen: set[int] = set()
+    uniq = []
+    for off in offsets:
+        if off not in seen:
+            seen.add(off)
+            uniq.append(off)
+    offsets = uniq
 
     try:
         fd = os.open(dev_path, os.O_RDONLY)
@@ -149,9 +223,11 @@ def verify_zeros(
                 raise VerifyError(f"short read at offset {off}")
             if any(b != 0 for b in data):
                 raise VerifyError(f"non-zero data at offset {off}")
-            progress((i + 1) / len(offsets))
+            progress(0.9 * (i + 1) / len(offsets))
     finally:
         os.close(fd)
+
+    verify_no_filesystem(dev_path, run)
     progress(1.0)
 
 
@@ -231,9 +307,12 @@ def verify_ata_erase(
     progress: ProgressCallback,
     run: RunCmd = default_run_cmd,
 ) -> None:
-    """ATA erase verify: device responds (zeros not required). Serial check
-    is enforced by Station after verify via read_identity."""
-    progress(0.3)
+    """ATA erase verify: identity still readable + no FS/partition leftovers.
+
+    Full-disk zero sampling is not required — some SSDs return non-zero
+    after secure erase — but partition/FS signatures must be gone.
+    """
+    progress(0.2)
     code, out, _ = run(["smartctl", "-j", "-i", "-d", "sat", dev_path])
     if not out.strip():
         raise VerifyError("identity unreadable after ATA erase")
@@ -244,7 +323,7 @@ def verify_ata_erase(
         raise VerifyError("identity unreadable after ATA erase") from exc
     if not (data.get("serial_number") or "").strip():
         raise VerifyError("serial missing after ATA erase")
-    progress(0.6)
+    progress(0.5)
 
     try:
         fd = os.open(dev_path, os.O_RDONLY)
@@ -254,4 +333,7 @@ def verify_ata_erase(
             os.close(fd)
     except OSError as exc:
         raise VerifyError(f"device not readable after erase: {exc}") from exc
+
+    progress(0.7)
+    verify_no_filesystem(dev_path, run)
     progress(1.0)

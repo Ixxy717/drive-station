@@ -51,6 +51,10 @@ class HardwareBackend(ABC):
     def read_health(self, slot_id: str) -> dict:
         """Return raw health/SMART data for the drive in the slot."""
 
+    def read_usage(self, slot_id: str) -> dict:
+        """Pre-wipe used-space probe. Optional; default empty."""
+        return {}
+
     @abstractmethod
     def supported_wipe_methods(self, slot_id: str) -> list[WipeMethod]:
         """Wipe methods that actually work for this drive through this dock."""

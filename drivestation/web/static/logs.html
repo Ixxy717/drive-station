@@ -114,7 +114,10 @@ async function load() {
       <td>${esc(health)}</td>
       <td class="mono">${esc((r.wipe_method || "").replaceAll("_", " "))}</td>
       <td class="${esc(r.result || "")}">${esc(r.result || "…")}${err}</td>
-      <td><button onclick="blurb('${escAttr(r.serial || "")}')">BLURB</button></td>
+      <td>
+        <button onclick="blurb('${escAttr(r.serial || "")}')">BLURB</button>
+        <a href="/d/${encodeURIComponent(r.serial || "")}" style="margin-left:8px;font-size:11px;font-weight:700;letter-spacing:1px;color:#2f6fc4;text-decoration:none">CARD</a>
+      </td>
     </tr>`;
   }).join("") || `<tr><td colspan="8" class="muted">No jobs logged yet.</td></tr>`;
 }

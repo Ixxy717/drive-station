@@ -37,7 +37,74 @@ echo "Reports -> $OUTDIR"
 
 SLOTS=(SATA-1 SATA-2 NVME-A1 NVME-A2 NVME-B1 NVME-B2 M2-1)
 
+# Disk names only (used for removal checks / summaries).
 list_disks() { lsblk -dno NAME,TYPE | awk '$2=="disk"{print $1}' | sort; }
+
+# Snapshot identity as "name|bytes|model|serial" per disk.
+# Empty docks often leave 0-byte ghost nodes that keep the same /dev name
+# after a drive is inserted + power-cycled — name-only detection misses that.
+disk_snapshot() {
+    while read -r name; do
+        [[ -z "$name" ]] && continue
+        size=$(lsblk -dbno SIZE "/dev/$name" 2>/dev/null || echo 0)
+        model=$(lsblk -dno MODEL "/dev/$name" 2>/dev/null | tr '|' '/' | tr -s ' ' | sed 's/^ *//;s/ *$//')
+        serial=$(lsblk -dno SERIAL "/dev/$name" 2>/dev/null | tr '|' '/' | tr -s ' ' | sed 's/^ *//;s/ *$//')
+        printf '%s|%s|%s|%s\n' "$name" "${size:-0}" "${model:-}" "${serial:-}"
+    done < <(list_disks)
+}
+
+disk_usable() {  # disk_usable <name>  — has real capacity (not a 0B ghost)
+    local size
+    size=$(lsblk -dbno SIZE "/dev/$1" 2>/dev/null || echo 0)
+    [[ "${size:-0}" -gt 0 ]]
+}
+
+# Compare before/after snapshots. Prints candidate device name(s), best first.
+# Detects: brand-new names, OR same name whose size grew from 0, OR same name
+# whose model/serial changed.
+find_changed_disk() {
+    local before="$1" after="$2"
+    local name asize amodel aserial bsize bmodel bserial aline
+
+    # Pass 1: brand-new disk names with capacity.
+    while IFS='|' read -r name asize amodel aserial; do
+        [[ -z "$name" ]] && continue
+        if ! grep -q "^${name}|" <<<"$before"; then
+            if [[ "${asize:-0}" -gt 0 ]]; then
+                echo "$name"
+                return 0
+            fi
+        fi
+    done <<<"$after"
+
+    # Pass 2: existing names whose capacity grew (ghost → real drive).
+    # THIS is the common case for non-hot-swap docks / power-cycled ports.
+    while IFS='|' read -r name asize amodel aserial; do
+        [[ -z "$name" ]] && continue
+        aline=$(grep "^${name}|" <<<"$before" || true)
+        [[ -z "$aline" ]] && continue
+        IFS='|' read -r _ bsize bmodel bserial <<<"$aline"
+        if [[ "${bsize:-0}" -eq 0 && "${asize:-0}" -gt 0 ]]; then
+            echo "$name"
+            return 0
+        fi
+        if [[ "${asize:-0}" -gt 0 && ( "$amodel" != "$bmodel" || "$aserial" != "$bserial" ) ]]; then
+            echo "$name"
+            return 0
+        fi
+    done <<<"$after"
+
+    # Pass 3: brand-new 0B node (bridge just appeared; capacity may follow).
+    while IFS='|' read -r name asize amodel aserial; do
+        [[ -z "$name" ]] && continue
+        if ! grep -q "^${name}|" <<<"$before"; then
+            echo "$name"
+            return 0
+        fi
+    done <<<"$after"
+
+    return 1
+}
 
 section() { echo -e "\n===== $1 =====" >>"$2"; }
 
@@ -132,10 +199,13 @@ for slot in "${SLOTS[@]}"; do
     # Retry loop: a missed detect shouldn't force re-running the whole script.
     # Operator can keep trying this slot until it works, or skip it.
     while true; do
-        # Snapshot BEFORE prompting, so it doesn't matter whether the drive
-        # enumerates before or after the operator presses enter.
-        before=$(list_disks)
+        # Snapshot BEFORE prompting. Detects both new /dev names AND a ghost
+        # node (0B) gaining real capacity after a power-cycle — the common
+        # case for non-hot-swap docks.
+        before=$(disk_snapshot)
         echo "--- $slot: insert a drive now (power-cycle the port if the dock needs it),"
+        echo "    Current disks:"
+        lsblk -dno NAME,SIZE,MODEL,SERIAL | sed 's/^/      /'
         read -rp "    then press enter (or type s to skip this slot): " skip
         if [[ "$skip" == "s" ]]; then
             echo "Skipped $slot by operator." >"$OUTDIR/$slot.txt"
@@ -143,28 +213,37 @@ for slot in "${SLOTS[@]}"; do
             break
         fi
 
-        echo "Waiting up to 45s for the drive to appear..."
-        # Brief progress so a quiet wait doesn't look hung.
-        for i in $(seq 1 45); do
+        echo "Waiting up to 60s for a drive with real capacity..."
+        candidate=""
+        for i in $(seq 1 60); do
             sleep 1
             if (( i % 5 == 0 )); then printf "  %ss...\r" "$i"; fi
-            new=$(comm -13 <(echo "$before") <(list_disks))
-            if [[ -n "$new" ]]; then
+            after=$(disk_snapshot)
+            candidate=$(find_changed_disk "$before" "$after" || true)
+            if [[ -n "$candidate" ]] && disk_usable "$candidate"; then
                 printf "\n"
-                dev=$(echo "$new" | head -n1)
+                dev="$candidate"
+                size_h=$(lsblk -dno SIZE "/dev/$dev" 2>/dev/null || echo "?")
+                echo "Detected /dev/$dev ($size_h) for $slot."
                 break
+            fi
+            if [[ -n "$candidate" ]] && ! disk_usable "$candidate"; then
+                # Bridge node appeared/changed but still 0B — keep waiting.
+                printf "  saw /dev/%s (0B ghost) — waiting for capacity...\r" "$candidate"
             fi
             dev=""
         done
 
-        if [[ -n "$dev" ]]; then
+        if [[ -n "${dev:-}" ]]; then
             break
         fi
 
         echo
-        echo "!! No new device appeared for $slot."
-        echo "   Tips: power-cycle the port, reseat the drive, confirm dock power."
-        echo "   Current disks: $(list_disks | tr '\n' ' ')"
+        echo "!! No usable drive appeared for $slot."
+        echo "   (A 0B ghost node doesn't count — the dock bridge is there but no media.)"
+        echo "   Tips: power-cycle the port AFTER inserting, reseat the drive, confirm dock power."
+        echo "   Current disks:"
+        lsblk -dno NAME,SIZE,MODEL,SERIAL | sed 's/^/      /'
         read -rp "   Retry $slot? [enter=retry / s=skip]: " again
         if [[ "$again" == "s" ]]; then
             echo "No device detected for $slot (skipped after failed detect)." \
@@ -178,7 +257,7 @@ for slot in "${SLOTS[@]}"; do
     # Skipped (either up front or after failed detects).
     [[ -z "${dev:-}" ]] && continue
 
-    echo "Detected /dev/$dev for $slot. Gathering data (takes ~30s)..."
+    echo "Gathering data for /dev/$dev (takes ~30s)..."
     characterize "$slot" "$dev" "$OUTDIR/$slot.txt"
 
     echo

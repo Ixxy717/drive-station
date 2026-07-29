@@ -109,7 +109,7 @@ SLOT_LAYOUT: list[tuple[str, str]] = [
     ("NVME-A2", "NVME DOCK A"),
     ("NVME-B1", "NVME DOCK B"),
     ("NVME-B2", "NVME DOCK B"),
-    # Dual-bay M.2 dock (NVMe and/or M.2 SATA). Hot-swap capable.
+    # Single usable bay on the dual M.2 SATA/NVMe dock (bay 2 needs bay 1
+    # occupied for transfer — we only expose the reliable bay as M2-1).
     ("M2-1", "M.2 DOCK"),
-    ("M2-2", "M.2 DOCK"),
 ]

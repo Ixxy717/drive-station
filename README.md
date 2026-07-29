@@ -2,8 +2,8 @@
 
 Drive testing and secure-wiping station for an electronics recycling / ITAD bench.
 
-One mini PC + USB docks (2× SATA bays, 4× NVMe M.2 slots, 2× M.2 NVMe/SATA slots)
-= an 8-slot appliance. Operators insert drives, look at the screen, click YES/NO,
+One mini PC + USB docks (2× SATA bays, 4× NVMe M.2 slots, 1× M.2 NVMe/SATA slot)
+= a 7-slot appliance. Operators insert drives, look at the screen, click YES/NO,
 and remove finished drives. Everything else is automatic.
 
 ## How it works

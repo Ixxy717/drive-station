@@ -129,25 +129,55 @@ echo
 
 for slot in "${SLOTS[@]}"; do
     echo
-    # Snapshot BEFORE prompting, so it doesn't matter whether the drive
-    # enumerates before or after the operator presses enter.
-    before=$(list_disks)
-    echo "--- $slot: insert a drive now (power-cycle the port if the dock needs it),"
-    read -rp "    then press enter (or type s to skip this slot): " skip
-    [[ "$skip" == "s" ]] && continue
+    # Retry loop: a missed detect shouldn't force re-running the whole script.
+    # Operator can keep trying this slot until it works, or skip it.
+    while true; do
+        # Snapshot BEFORE prompting, so it doesn't matter whether the drive
+        # enumerates before or after the operator presses enter.
+        before=$(list_disks)
+        echo "--- $slot: insert a drive now (power-cycle the port if the dock needs it),"
+        read -rp "    then press enter (or type s to skip this slot): " skip
+        if [[ "$skip" == "s" ]]; then
+            echo "Skipped $slot by operator." >"$OUTDIR/$slot.txt"
+            dev=""
+            break
+        fi
 
-    echo "Waiting up to 45s for the drive to appear..."
-    dev=""
-    for _ in $(seq 1 45); do
-        sleep 1
-        new=$(comm -13 <(echo "$before") <(list_disks))
-        if [[ -n "$new" ]]; then dev=$(echo "$new" | head -n1); break; fi
+        echo "Waiting up to 45s for the drive to appear..."
+        # Brief progress so a quiet wait doesn't look hung.
+        for i in $(seq 1 45); do
+            sleep 1
+            if (( i % 5 == 0 )); then printf "  %ss...\r" "$i"; fi
+            new=$(comm -13 <(echo "$before") <(list_disks))
+            if [[ -n "$new" ]]; then
+                printf "\n"
+                dev=$(echo "$new" | head -n1)
+                break
+            fi
+            dev=""
+        done
+
+        if [[ -n "$dev" ]]; then
+            break
+        fi
+
+        echo
+        echo "!! No new device appeared for $slot."
+        echo "   Tips: power-cycle the port, reseat the drive, confirm dock power."
+        echo "   Current disks: $(list_disks | tr '\n' ' ')"
+        read -rp "   Retry $slot? [enter=retry / s=skip]: " again
+        if [[ "$again" == "s" ]]; then
+            echo "No device detected for $slot (skipped after failed detect)." \
+                >"$OUTDIR/$slot.txt"
+            break
+        fi
+        echo "Retrying $slot..."
+        echo
     done
-    if [[ -z "$dev" ]]; then
-        echo "!! No new device appeared for $slot — noted in report."
-        echo "No device detected for $slot" >"$OUTDIR/$slot.txt"
-        continue
-    fi
+
+    # Skipped (either up front or after failed detects).
+    [[ -z "${dev:-}" ]] && continue
+
     echo "Detected /dev/$dev for $slot. Gathering data (takes ~30s)..."
     characterize "$slot" "$dev" "$OUTDIR/$slot.txt"
 

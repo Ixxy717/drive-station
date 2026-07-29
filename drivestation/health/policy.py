@@ -45,6 +45,20 @@ def _ssd_verdict(percent: int, warnings: list[str]) -> HealthVerdict:
 
 def _evaluate_nvme(raw: dict) -> HealthResult:
     warnings: list[str] = []
+    if "percentage_used" not in raw:
+        # Common through USB NVMe bridges that block SMART log pages.
+        if raw.get("media_errors", 0) > 0:
+            return HealthResult(
+                HealthVerdict.FAIL, percent=None,
+                warnings=[f"Media errors: {raw['media_errors']}"], raw=raw)
+        if raw.get("critical_warning", 0) != 0:
+            return HealthResult(
+                HealthVerdict.FAIL, percent=None,
+                warnings=["NVMe critical warning flag set"], raw=raw)
+        return HealthResult(
+            HealthVerdict.GOOD, percent=None,
+            warnings=["Wear level unavailable through USB bridge"], raw=raw)
+
     percent = max(0, min(100, 100 - int(raw.get("percentage_used", 0))))
     verdict = _ssd_verdict(percent, warnings)
     if raw.get("media_errors", 0) > 0:

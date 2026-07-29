@@ -9,17 +9,14 @@ and remove finished drives. Everything else is automatic.
 ## How it works
 
 - **Slot mapping**: every physical dock slot has a permanent name (`SATA-1`,
-  `NVME-A1`, `M2-1`, ...). On Linux, slots are identified by the USB *port path*
-  (physical port chain), never by `/dev/sdX` names. Devices not on the dock
-  allowlist are completely ignored.
+  `NVME-A1`, `M2-1`, ...). On Linux, slots are identified by the USB `ID_PATH`
+  (including SCSI LUN for the dual SATA dock), never by `/dev/sdX` names.
+  Devices not listed in `config/slots.toml` are ignored.
 - **Simulator mode**: on Windows (or anywhere without the real docks) the app
-  runs against fake docks and fake drives, including injectable faults
-  (drive yanked mid-wipe, serial swap, verify failure, ...). The entire UI and
-  state machine are testable without touching hardware.
+  runs against fake docks and fake drives, including injectable faults.
 - **Safety**: wipes are bound to slot + serial. The serial is re-read and
-  re-verified immediately before any destructive command. Any ambiguity stops
-  the job. The OS drive and non-allowlisted USB devices are structurally
-  unreachable.
+  re-verified immediately before any destructive command. The OS drive and
+  non-allowlisted USB devices are structurally unreachable.
 
 ## Running (development, simulator mode)
 
@@ -28,8 +25,7 @@ pip install -r requirements.txt
 python run.py
 ```
 
-Open http://127.0.0.1:8330 — the kiosk board plus a simulator control panel
-for inserting fake drives and injecting faults.
+Open http://127.0.0.1:8330 — the kiosk board plus a simulator control panel.
 
 ## Tests
 
@@ -37,44 +33,68 @@ for inserting fake drives and injecting faults.
 python -m pytest
 ```
 
-The test suite deliberately tries to trick the software into wiping the wrong
-(fake) drive. All edge cases live in `tests/`.
-
 ## Deploying to the station mini PC (Linux)
 
-```
-git clone <this repo> && cd drive-station
-pip install -r requirements.txt
-DRIVESTATION_MODE=real python run.py
-```
-
-Updates are `git pull` on the mini PC.
-
-**Before real mode works**, run the Phase 0 dock characterization on the mini
-PC with sacrificial drives:
+**Do not move the dock USB cables** after characterization — paths in
+`config/slots.toml` are frozen to those ports. If you must re-cable, re-run
+`tools/dock_characterize.sh` / `--dual` and update the file.
 
 ```
-sudo tools/dock_characterize.sh
+git clone https://github.com/Ixxy717/drive-station.git
+cd drive-station
+sudo apt install smartmontools nvme-cli hdparm usbutils
+pip install -r requirements.txt --break-system-packages   # or use a venv
+sudo DRIVESTATION_MODE=real python run.py
 ```
 
-Its report determines which wipe commands actually pass through each dock's
-USB bridge and how the slots enumerate. The Linux hardware backend is built
-from those results.
+Optional:
+
+- `DRIVESTATION_SLOTS=/path/to/slots.toml` — override slot map
+- `DRIVESTATION_DB=/var/lib/drivestation/drivestation.db` — job log location
+- `DRIVESTATION_NO_PYUDEV=1` — poll-only detection (pyudev still recommended)
+
+Open http://\<mini-pc-ip\>:8330 on the kiosk display.
+
+### Wipe methods (Phase 0 locked)
+
+| Dock | Method |
+|------|--------|
+| SATA-1 / SATA-2 (ASMedia) | ATA enhanced secure erase when not frozen; else zero overwrite |
+| NVME-A/B (RTL9210) | Zero overwrite only (NVMe admin blocked by bridge) |
+| M2-1 SATA media (RTL9220) | ATA enhanced when available; else overwrite |
+| M2-1 NVMe media | Zero overwrite only |
+
+SATA dock is **not** hot-swap: power-cycle the port after inserting/removing.
+NVMe docks and M2-1 are hot-swap.
+
+### Phase 0 tools (already run for this hardware)
+
+```
+sudo tools/dock_characterize.sh          # per-slot bridge report
+sudo tools/dock_characterize.sh --dual   # SATA LUN map (256 vs 512)
+bash tools/serve_reports.sh              # pull reports over LAN :2020
+```
 
 ## Layout
 
 ```
+config/slots.toml          frozen USB ID_PATH allowlist (Phase 0)
 drivestation/
-  models.py        drive/slot/status data types
-  station.py       slot state machine + safety-gated wipe engine
-  db.py            SQLite job log (traceable by serial, batch-ready)
-  health/policy.py health scoring (thresholds are placeholders, NOT final)
-  wipe/methods.py  wipe method preference per drive type
-  hw/base.py       hardware backend interface
-  hw/simulator.py  fake docks/drives with fault injection
-  hw/linux.py      real backend (pending Phase 0 dock characterization)
-  web/             FastAPI app + kiosk UI
+  models.py
+  station.py
+  db.py
+  health/policy.py
+  wipe/methods.py
+  hw/base.py
+  hw/simulator.py
+  hw/linux.py              real backend
+  hw/slots_config.py
+  hw/sysfs.py
+  hw/identify.py
+  hw/wipe_linux.py
+  web/
 tools/
-  dock_characterize.sh   Phase 0 dock/bridge test harness (run on mini PC)
-tests/                   edge-case test suite
+  dock_characterize.sh
+  serve_reports.sh
+tests/
 ```

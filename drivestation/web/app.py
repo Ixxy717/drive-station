@@ -21,7 +21,11 @@ app = FastAPI(title="drive-station")
 
 if MODE == "real":
     from ..hw.linux import LinuxBackend
-    backend = LinuxBackend()
+    slots_env = os.environ.get("DRIVESTATION_SLOTS")
+    backend = LinuxBackend(
+        slots_path=Path(slots_env) if slots_env else None,
+        use_pyudev=os.environ.get("DRIVESTATION_NO_PYUDEV") != "1",
+    )
 else:
     backend = SimulatorBackend([s for s, _ in SLOT_LAYOUT])
 

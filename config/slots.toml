@@ -1,0 +1,40 @@
+# Frozen Phase 0 slot map. Do not move USB cables without updating these paths.
+# Re-run: sudo tools/dock_characterize.sh and --dual, then edit this file.
+# Override path with DRIVESTATION_SLOTS=/path/to/slots.toml
+
+[slots.SATA-1]
+id_path = "pci-0000:00:14.0-usb-0:4.4.4.4:1.0-scsi-0:0:0:0"
+bridge = "asmedia_sata"
+hot_swap = false
+shared_power_group = "SATA DOCK"
+
+[slots.SATA-2]
+id_path = "pci-0000:00:14.0-usb-0:4.4.4.4:1.0-scsi-0:0:0:1"
+bridge = "asmedia_sata"
+hot_swap = false
+shared_power_group = "SATA DOCK"
+
+[slots.NVME-A1]
+id_path = "pci-0000:00:14.0-usb-0:4.4.3.1:1.0-scsi-0:0:0:0"
+bridge = "rtl9210"
+hot_swap = true
+
+[slots.NVME-A2]
+id_path = "pci-0000:00:14.0-usb-0:4.4.3.2:1.0-scsi-0:0:0:0"
+bridge = "rtl9210"
+hot_swap = true
+
+[slots.NVME-B1]
+id_path = "pci-0000:00:14.0-usb-0:4.4.2.1:1.0-scsi-0:0:0:0"
+bridge = "rtl9210"
+hot_swap = true
+
+[slots.NVME-B2]
+id_path = "pci-0000:00:14.0-usb-0:4.4.2.2:1.0-scsi-0:0:0:0"
+bridge = "rtl9210"
+hot_swap = true
+
+[slots.M2-1]
+id_path = "pci-0000:00:14.0-usb-0:8.4.4.3:1.0-scsi-0:0:0:0"
+bridge = "rtl9220"
+hot_swap = true

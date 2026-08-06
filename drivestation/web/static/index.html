@@ -210,6 +210,7 @@
   .yes.secondary { background: var(--active); }
   .no { background: transparent; color: var(--ink); border-color: #b9b9b4; }
   .no:active { background: #e4e4e1; }
+  button.act:disabled { opacity: .55; cursor: wait; }
 
   #simpanel {
     display: none; flex: 0 0 auto; max-height: 22vh; overflow: auto;
@@ -274,7 +275,28 @@ const BANDS = [
   { title: "WIPE ONLY", groups: ["WIPE ONLY"], cols: 4, wipe: true },
 ];
 
-async function post(url, body) {
+/* Board poll rewrites innerHTML every ~700ms. On a touchscreen that destroys
+   the button between touchstart and click — first tap "does nothing". */
+let refreshPausedUntil = 0;
+let pointerOnBoard = false;
+let lastBoardSig = "";
+let actionInFlight = false;
+
+function pauseRefresh(ms) {
+  refreshPausedUntil = Math.max(refreshPausedUntil, Date.now() + ms);
+}
+
+async function post(url, body, btn) {
+  if (actionInFlight) return;
+  actionInFlight = true;
+  pauseRefresh(4000);
+  const label = btn ? btn.textContent : "";
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "WORKING…";
+    const row = btn.closest(".buttons");
+    if (row) for (const b of row.querySelectorAll("button")) b.disabled = true;
+  }
   try {
     const res = await fetch(url, {
       method: "POST",
@@ -290,10 +312,19 @@ async function post(url, body) {
       } catch (_) { /* keep statusText */ }
       console.error("POST failed", url, detail);
       alert(`Action failed: ${detail}`);
+      if (btn) btn.textContent = label;
+    } else if (btn) {
+      btn.textContent = "OK";
     }
+    lastBoardSig = ""; // force redraw with new state
+    await refresh(true);
   } catch (e) {
     console.error("POST error", url, e);
     alert(`Action failed: ${e.message || e}`);
+    if (btn) btn.textContent = label;
+  } finally {
+    actionInFlight = false;
+    pauseRefresh(500);
   }
 }
 
@@ -380,17 +411,17 @@ function tileHTML(s, busyByGroup) {
     }
     const buttons = [];
     if (s.wipe_only) {
-      buttons.push(`<button class="act yes" onclick="post('/api/slots/${s.slot_id}/wipe')">WIPE</button>`);
+      buttons.push(`<button type="button" class="act yes" data-action="wipe" data-slot="${s.slot_id}">WIPE</button>`);
     } else if (largeNvme) {
-      buttons.push(`<button class="act yes" onclick="post('/api/slots/${s.slot_id}/wipe')">QUEUE</button>`);
-      buttons.push(`<button class="act yes secondary" onclick="post('/api/slots/${s.slot_id}/wipe-here')">WIPE HERE</button>`);
+      buttons.push(`<button type="button" class="act yes" data-action="wipe" data-slot="${s.slot_id}">QUEUE</button>`);
+      buttons.push(`<button type="button" class="act yes secondary" data-action="wipe-here" data-slot="${s.slot_id}">WIPE HERE</button>`);
     } else {
-      buttons.push(`<button class="act yes" onclick="post('/api/slots/${s.slot_id}/wipe')">WIPE</button>`);
+      buttons.push(`<button type="button" class="act yes" data-action="wipe" data-slot="${s.slot_id}">WIPE</button>`);
       if (d && d.drive_type === "NVME") {
-        buttons.push(`<button class="act yes secondary" onclick="post('/api/slots/${s.slot_id}/queue')">TO WIPE DOCK</button>`);
+        buttons.push(`<button type="button" class="act yes secondary" data-action="queue" data-slot="${s.slot_id}">TO WIPE DOCK</button>`);
       }
     }
-    buttons.push(`<button class="act no" onclick="post('/api/slots/${s.slot_id}/decline')">SKIP</button>`);
+    buttons.push(`<button type="button" class="act no" data-action="decline" data-slot="${s.slot_id}">SKIP</button>`);
     ask = `<div class="ask"><div class="q">${dataQ}</div>
       <div class="buttons">${buttons.join("")}</div></div>`;
   }
@@ -421,8 +452,8 @@ function buildSim(slots) {
       <select id="preset-${s.slot_id}">
         ${PRESETS.map(p => `<option>${p}</option>`).join("")}
       </select>
-      <button onclick="post('/api/sim/insert',{slot:'${s.slot_id}',preset:document.getElementById('preset-${s.slot_id}').value})">insert</button>
-      <button onclick="post('/api/sim/remove',{slot:'${s.slot_id}'})">yank</button>
+      <button type="button" data-sim="insert" data-slot="${s.slot_id}">insert</button>
+      <button type="button" data-sim="remove" data-slot="${s.slot_id}">yank</button>
     </div>`).join("");
   document.getElementById("simpanel").style.display = "block";
   simBuilt = true;
@@ -444,10 +475,37 @@ function tick() {
 }
 setInterval(tick, 1000); tick();
 
-async function refresh() {
+function boardSignature(data) {
+  const q = (data.pending_wipes || [])
+    .map(p => `${p.serial}@${p.from_slot}`).join(",");
+  const slots = (data.slots || []).map(s => {
+    const d = s.drive || {};
+    const h = s.health || {};
+    return [
+      s.slot_id, s.status, s.awaiting_confirm ? 1 : 0,
+      Math.round((s.progress || 0) * 100), s.message || "",
+      d.serial || "", h.verdict || "", h.percent ?? "",
+      s.queued_from || "", s.wipe_method || "",
+    ].join("|");
+  }).join(";");
+  return q + "::" + slots;
+}
+
+async function refresh(force = false) {
+  if (!force) {
+    if (pointerOnBoard) return;
+    if (actionInFlight) return;
+    if (Date.now() < refreshPausedUntil) return;
+  }
   try {
     const res = await fetch("/api/state");
     const data = await res.json();
+    const sig = boardSignature(data);
+    if (!force && sig === lastBoardSig) return;
+    // Don't nuke the DOM while a finger is still down on a button.
+    if (!force && pointerOnBoard) return;
+    lastBoardSig = sig;
+
     const all = data.slots;
     const byGroup = {};
     const busyByGroup = {};
@@ -485,8 +543,39 @@ async function refresh() {
     if (data.sim_mode && !simBuilt) buildSim(data.slots);
   } catch (e) { /* server restarting; keep polling */ }
 }
-refresh();
-setInterval(refresh, 700);
+
+const boardEl = document.getElementById("board");
+boardEl.addEventListener("pointerdown", () => {
+  pointerOnBoard = true;
+  pauseRefresh(2000);
+}, true);
+window.addEventListener("pointerup", () => { pointerOnBoard = false; });
+window.addEventListener("pointercancel", () => { pointerOnBoard = false; });
+window.addEventListener("blur", () => { pointerOnBoard = false; });
+
+boardEl.addEventListener("click", (ev) => {
+  const btn = ev.target.closest("button[data-action]");
+  if (!btn || btn.disabled) return;
+  const slot = btn.dataset.slot;
+  const action = btn.dataset.action;
+  const url = `/api/slots/${encodeURIComponent(slot)}/${action}`;
+  post(url, null, btn);
+});
+
+document.getElementById("simpanel").addEventListener("click", (ev) => {
+  const btn = ev.target.closest("button[data-sim]");
+  if (!btn) return;
+  const slot = btn.dataset.slot;
+  if (btn.dataset.sim === "insert") {
+    const preset = document.getElementById(`preset-${slot}`).value;
+    post("/api/sim/insert", {slot, preset}, btn);
+  } else {
+    post("/api/sim/remove", {slot}, btn);
+  }
+});
+
+refresh(true);
+setInterval(() => refresh(false), 700);
 </script>
 </body>
 </html>

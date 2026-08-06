@@ -7,7 +7,81 @@ Verdicts used on the board:
 """
 from __future__ import annotations
 
+from typing import Any, Optional
+
 from ..models import DriveInfo, DriveType, HealthResult, HealthVerdict
+
+# NVMe Data Units are 1000 × 512-byte blocks (512_000 bytes each).
+_NVME_DATA_UNIT_BYTES = 512_000
+# ATA Total_LBAs_Written is typically in 512-byte sectors.
+_ATA_LBA_BYTES = 512
+
+
+def _fmt_bytes(n: float) -> str:
+    if n >= 1_000_000_000_000:
+        tb = n / 1_000_000_000_000
+        return f"{tb:.1f} TB" if tb < 10 else f"{tb:.0f} TB"
+    if n >= 1_000_000_000:
+        gb = n / 1_000_000_000
+        return f"{gb:.0f} GB"
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.0f} MB"
+    return f"{int(n)} B"
+
+
+def _nvme_units_label(units: int, override: Optional[str] = None) -> str:
+    if override:
+        return override
+    return _fmt_bytes(units * _NVME_DATA_UNIT_BYTES)
+
+
+def health_details(raw: dict[str, Any]) -> list[dict[str, str]]:
+    """Operator-facing SMART telemetry rows for the board (not just wear %)."""
+    if not raw:
+        return []
+    rows: list[dict[str, str]] = []
+
+    if raw.get("power_on_hours") is not None:
+        rows.append({"k": "Powered", "v": f"{int(raw['power_on_hours']):,} h"})
+    if raw.get("power_cycles") is not None:
+        rows.append({"k": "Cycles", "v": f"{int(raw['power_cycles']):,}"})
+
+    if raw.get("data_written_label"):
+        rows.append({"k": "Written", "v": str(raw["data_written_label"])})
+    elif raw.get("data_units_written") is not None:
+        rows.append({
+            "k": "Written",
+            "v": _nvme_units_label(int(raw["data_units_written"])),
+        })
+    elif raw.get("total_lbas_written") is not None:
+        rows.append({
+            "k": "Written",
+            "v": _fmt_bytes(int(raw["total_lbas_written"]) * _ATA_LBA_BYTES),
+        })
+
+    if raw.get("data_read_label"):
+        rows.append({"k": "Read", "v": str(raw["data_read_label"])})
+    elif raw.get("data_units_read") is not None:
+        rows.append({
+            "k": "Read",
+            "v": _nvme_units_label(int(raw["data_units_read"])),
+        })
+    elif raw.get("total_lbas_read") is not None:
+        rows.append({
+            "k": "Read",
+            "v": _fmt_bytes(int(raw["total_lbas_read"]) * _ATA_LBA_BYTES),
+        })
+
+    if raw.get("unsafe_shutdowns") is not None:
+        rows.append({"k": "Unsafe", "v": f"{int(raw['unsafe_shutdowns']):,}"})
+    if raw.get("temperature_c") is not None:
+        rows.append({"k": "Temp", "v": f"{int(raw['temperature_c'])}°C"})
+    if raw.get("available_spare") is not None:
+        rows.append({"k": "Spare", "v": f"{int(raw['available_spare'])}%"})
+    if raw.get("media_errors"):
+        rows.append({"k": "Media err", "v": f"{int(raw['media_errors']):,}"})
+
+    return rows
 
 THRESHOLDS = {
     # SSD / NVMe life remaining (%). At or below → SCRAP.

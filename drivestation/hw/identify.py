@@ -268,21 +268,50 @@ def _parse_nvme_health_text(text: str) -> dict[str, Any]:
     m = re.search(r"Temperature:\s*(\d+)\s*Celsius", text, re.I)
     if m:
         raw["temperature_c"] = int(m.group(1))
+    m = re.search(r"Power On Hours:\s*(\d+)", text, re.I)
+    if m:
+        raw["power_on_hours"] = int(m.group(1))
+    m = re.search(r"Power Cycles:\s*(\d+)", text, re.I)
+    if m:
+        raw["power_cycles"] = int(m.group(1))
+    m = re.search(r"Unsafe Shutdowns:\s*(\d+)", text, re.I)
+    if m:
+        raw["unsafe_shutdowns"] = int(m.group(1))
+    # "Data Units Written: 1,234,567 [632 GB]" — prefer bracket size if present
+    m = re.search(
+        r"Data Units Written:\s*([\d,]+)\s*(?:\[([^\]]+)\])?", text, re.I)
+    if m:
+        raw["data_units_written"] = int(m.group(1).replace(",", ""))
+        if m.group(2):
+            raw["data_written_label"] = m.group(2).strip()
+    m = re.search(
+        r"Data Units Read:\s*([\d,]+)\s*(?:\[([^\]]+)\])?", text, re.I)
+    if m:
+        raw["data_units_read"] = int(m.group(1).replace(",", ""))
+        if m.group(2):
+            raw["data_read_label"] = m.group(2).strip()
     return raw
+
+
+_NVME_LOG_INT_KEYS = (
+    "percentage_used", "available_spare", "available_spare_threshold",
+    "media_errors", "critical_warning", "power_on_hours", "power_cycles",
+    "unsafe_shutdowns", "data_units_written", "data_units_read",
+    "host_reads", "host_writes", "controller_busy_time",
+    "num_err_log_entries",
+)
 
 
 def _merge_nvme_log(raw: dict[str, Any], log: dict) -> dict[str, Any]:
     if not log:
         return raw
-    if "percentage_used" in log:
-        raw["percentage_used"] = int(log["percentage_used"])
-    if "media_errors" in log:
-        raw["media_errors"] = int(log["media_errors"])
-    cw = log.get("critical_warning")
-    if cw is not None:
-        raw["critical_warning"] = int(cw) if not isinstance(cw, int) else cw
-    if "available_spare" in log:
-        raw["available_spare"] = int(log["available_spare"])
+    for key in _NVME_LOG_INT_KEYS:
+        if key not in log:
+            continue
+        try:
+            raw[key] = int(log[key])
+        except (TypeError, ValueError):
+            pass
     temp = log.get("temperature")
     if isinstance(temp, int):
         raw["temperature_c"] = temp
@@ -291,6 +320,22 @@ def _merge_nvme_log(raw: dict[str, Any], log: dict) -> dict[str, Any]:
             raw["temperature_c"] = int(temp["current"])
         except (TypeError, ValueError):
             pass
+    return raw
+
+
+def _enrich_from_smartctl_json(raw: dict[str, Any], blob: dict) -> dict[str, Any]:
+    """Pull NVMe log + top-level power-on time from a smartctl -j object."""
+    log = blob.get("nvme_smart_health_information_log") or {}
+    raw = _merge_nvme_log(raw, log)
+    pot = blob.get("power_on_time")
+    if "power_on_hours" not in raw:
+        if isinstance(pot, dict) and pot.get("hours") is not None:
+            try:
+                raw["power_on_hours"] = int(pot["hours"])
+            except (TypeError, ValueError):
+                pass
+        elif isinstance(pot, (int, float)):
+            raw["power_on_hours"] = int(pot)
     return raw
 
 
@@ -323,8 +368,7 @@ def _read_nvme_health_usb(
         nvme = _smartctl_json(dev_path, extra, run)
         if not nvme:
             continue
-        log = nvme.get("nvme_smart_health_information_log") or {}
-        raw = _merge_nvme_log(raw, log)
+        raw = _enrich_from_smartctl_json(raw, nvme)
         # SCSI endurance indicator (rare, but cheap to check)
         for key in ("scsi_percentage_used_endurance_indicator",
                     "percentage_used_endurance_indicator"):
@@ -481,6 +525,31 @@ def read_health(
             raw["ata_frozen"] = True
 
     table = (health.get("ata_smart_attributes") or {}).get("table") or []
+
+    # Operator telemetry (hours / cycles / written) — always collect when present.
+    poh = _attr_raw(table, "power_on_hours")
+    if poh is not None:
+        raw["power_on_hours"] = poh
+    cycles = _attr_raw(table, "power_cycle")
+    if cycles is not None:
+        raw["power_cycles"] = cycles
+    temp = _attr_raw(table, "temperature_celsius") or _attr_raw(table, "temperature")
+    if temp is not None:
+        raw["temperature_c"] = temp
+    lbas_w = (
+        _attr_raw(table, "total_lbas_written")
+        or _attr_raw(table, "lbas_written")
+        or _attr_raw(table, "total_lb_as_written")
+    )
+    if lbas_w is not None:
+        raw["total_lbas_written"] = lbas_w
+    lbas_r = (
+        _attr_raw(table, "total_lbas_read")
+        or _attr_raw(table, "lbas_read")
+    )
+    if lbas_r is not None:
+        raw["total_lbas_read"] = lbas_r
+
     if drive_type == DriveType.SATA_HDD:
         raw["reallocated_sectors"] = _attr_raw(table, "reallocated_sector") or 0
         raw["pending_sectors"] = _attr_raw(table, "current_pending") or 0
@@ -491,10 +560,10 @@ def read_health(
         )
         return raw
 
-    # SATA SSD wear — vendor specific; best effort
+    # SATA SSD wear — vendor specific; best effort (do not return early —
+    # telemetry above must stay on the board).
     for key in ("percent_lifetime_remain", "wear_leveling_count",
-                "ssd_life_left", "media_wearout"):
-        # smartctl JSON sometimes has normalized value on the attr
+                "ssd_life_left", "media_wearout", "lifetime_remaining"):
         for row in table:
             n = str(row.get("name") or "").lower()
             if key.replace("_", "") in n.replace("_", "") or key.split("_")[0] in n:
@@ -505,7 +574,6 @@ def read_health(
                         return raw
                     except (TypeError, ValueError):
                         pass
-    # Remaining life attributes often use high normalized value = healthier
     for row in table:
         n = str(row.get("name") or "").lower()
         if "wear" in n or "life" in n or "media_wear" in n:

@@ -320,6 +320,9 @@ function tileHTML(s, busyByGroup) {
     if (h) {
       const pct = h.percent === null ? "" : `${h.percent}% `;
       body += row("Health", `${pct}${h.verdict}`, `h-${h.verdict}`);
+      for (const d of (h.details || [])) {
+        body += row(d.k, d.v, "mono");
+      }
       const busy = s.status === "WIPING" || s.status === "VERIFYING";
       if (h.warnings.length && !busy) body += row("Flags", h.warnings.join(" · "), "flags");
     }

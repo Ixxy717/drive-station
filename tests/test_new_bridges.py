@@ -43,10 +43,19 @@ def test_asm2362_identifies_nvme_via_sntasmedia():
 
 
 def test_asm2362_health_uses_sntasmedia_not_sntrealtek():
-    log = {"nvme_smart_health_information_log": {
-        "percentage_used": 4, "media_errors": 0, "critical_warning": 0,
-        "available_spare": 100,
-    }}
+    log = {
+        "nvme_smart_health_information_log": {
+            "percentage_used": 4, "media_errors": 0, "critical_warning": 0,
+            "available_spare": 100,
+            "power_on_hours": 12345,
+            "power_cycles": 88,
+            "data_units_written": 2_000_000,  # ≈ 1.0 TB
+            "data_units_read": 4_000_000,
+            "unsafe_shutdowns": 3,
+            "temperature": 36,
+        },
+        "power_on_time": {"hours": 12345},
+    }
     seen = []
 
     def run(argv):
@@ -57,12 +66,18 @@ def test_asm2362_health_uses_sntasmedia_not_sntrealtek():
 
     raw = read_health("/dev/sdd", _asm(), DriveType.NVME, run)
     assert raw["percentage_used"] == 4
+    assert raw["power_on_hours"] == 12345
+    assert raw["data_units_written"] == 2_000_000
+    assert raw["temperature_c"] == 36
     assert not any("sntrealtek" in a for argv in seen for a in argv)
 
     info = DriveInfo("Samsung", "970 EVO", "X", 500107862016, DriveType.NVME)
     result = evaluate_health(info, raw)
     assert result.verdict == HealthVerdict.GOOD
     assert result.percent == 96
+    from drivestation.health.policy import health_details
+    keys = {d["k"] for d in health_details(raw)}
+    assert {"Powered", "Written", "Read", "Cycles", "Temp", "Spare"} <= keys
 
 
 # -- SAS enclosure (-d scsi) ---------------------------------------------------

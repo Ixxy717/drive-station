@@ -102,6 +102,17 @@ class SlotState:
     # Serial was queued on a grading dock (e.g. StarTech) for wipe here.
     queued_from: Optional[str] = None
 
+    def _health_dict(self) -> dict:
+        # Late import — policy imports DriveInfo from this module.
+        from .health.policy import health_details
+        assert self.health is not None
+        return {
+            "verdict": self.health.verdict.value,
+            "percent": self.health.percent,
+            "warnings": self.health.warnings,
+            "details": health_details(self.health.raw),
+        }
+
     def to_dict(self) -> dict:
         return {
             "slot_id": self.slot_id,
@@ -115,11 +126,7 @@ class SlotState:
                 "capacity_bytes": self.drive.capacity_bytes,
                 "drive_type": self.drive.drive_type.value,
             },
-            "health": None if self.health is None else {
-                "verdict": self.health.verdict.value,
-                "percent": self.health.percent,
-                "warnings": self.health.warnings,
-            },
+            "health": None if self.health is None else self._health_dict(),
             "usage": None if self.usage is None else self.usage.to_dict(),
             "progress": round(self.progress, 3),
             "message": self.message,

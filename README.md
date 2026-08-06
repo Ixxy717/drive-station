@@ -6,6 +6,22 @@ One mini PC + USB docks (2× SATA bays, 4× NVMe M.2 slots, 1× M.2 NVMe/SATA sl
 = a 7-slot appliance. Operators insert drives, look at the screen, click YES/NO,
 and remove finished drives. Everything else is automatic.
 
+## Roadmap
+
+- **Phase 0 — done.** Hardware characterization, slot allowlist, safe wipe +
+  verify engine, health grading, LAN board, job log, listing cards.
+- **Phase 1 — done (this release).** Appliance behavior: systemd service,
+  kiosk screen on the station's own monitor, printable NIST 800-88
+  certificates of destruction with QR codes, batch/client-lot tagging,
+  pre-wired support for the incoming ASM2362 NVMe and SAS docks.
+- **Phase 2 — blocked on new hardware.** Characterize the ASM2362 and SAS
+  docks, add their slots, NVMe wear grading on the new dock, SAS grading in
+  production; explore NVMe sanitize / SCSI FORMAT UNIT where the bridges
+  allow it; read-speed test as an extra grading signal.
+- **Phase 3 — business layer.** Inventory states (received → wiped → listed →
+  sold), pricing suggestions, label printing (QR stickers), multi-station
+  roll-up.
+
 ## How it works
 
 - **Slot mapping**: every physical dock slot has a permanent name (`SATA-1`,
@@ -47,21 +63,59 @@ pip install -r requirements.txt --break-system-packages   # or use a venv
 sudo DRIVESTATION_MODE=real python run.py
 ```
 
+### Run as a service (recommended)
+
+```
+sudo bash deploy/install.sh
+```
+
+Installs a systemd unit so the board starts at boot and restarts on crash —
+no more dying with the SSH session. Manage it with:
+
+```
+systemctl status drivestation
+journalctl -u drivestation -f     # live logs
+sudo systemctl restart drivestation   # after a git pull
+```
+
+### Kiosk screen on the station itself
+
+```
+sudo bash deploy/kiosk-install.sh
+```
+
+The mini PC's attached monitor boots straight into the fullscreen board
+(cage + Chromium, no desktop environment required). The LAN URLs keep
+working from phones/other PCs at the same time. To get a console back:
+`Ctrl+Alt+F2` for tty2, or `sudo systemctl stop drivestation-kiosk`.
+
 Optional:
 
 - `DRIVESTATION_SLOTS=/path/to/slots.toml` — override slot map
+- `DRIVESTATION_ORG="Your Company LLC"` — name printed on certificates
 - `DRIVESTATION_DB=/var/lib/drivestation/drivestation.db` — job log location
 - `DRIVESTATION_NO_PYUDEV=1` — poll-only detection (pyudev still recommended)
 
 Everything is on one LAN URL (printed at startup), for example:
 
 ```
-http://192.168.1.200:8330/              board (kiosk)
-http://192.168.1.200:8330/logs          wipe job log + eBay blurbs
-http://192.168.1.200:8330/d/<SERIAL>    per-drive listing card + PNG download
-http://192.168.1.200:8330/files/        characterization reports / text dumps
+http://192.168.1.200:8330/                 board (kiosk)
+http://192.168.1.200:8330/logs             wipe job log + eBay blurbs + batch control
+http://192.168.1.200:8330/d/<SERIAL>       per-drive listing card + PNG download
+http://192.168.1.200:8330/cert/<SERIAL>    printable Certificate of Data Destruction
+http://192.168.1.200:8330/files/           characterization reports / text dumps
 http://192.168.1.200:8330/api/records.csv
 ```
+
+**Certificates:** `/cert/<SERIAL>` is a print-ready Certificate of Data
+Destruction using NIST SP 800-88 Rev. 1 terminology (Clear for verified
+overwrite, Purge for ATA secure erase / NVMe sanitize), with a QR code back
+to the live record. Print or save as PDF from the browser. Set
+`DRIVESTATION_ORG` for the company name on the letterhead.
+
+**Batches / client lots:** set an active batch on the logs page (or
+`POST /api/batch`); every wipe started while it's active is stamped with it.
+Filter the log and CSV per batch for per-client reporting.
 
 Use **http://** (not https). Same Wi‑Fi/LAN as the mini PC.
 
@@ -107,6 +161,21 @@ After every wipe it **verifies**:
 | NVME-A/B (RTL9210) | Zero overwrite only (NVMe admin blocked by bridge) |
 | M2-1 SATA media (RTL9220) | ATA enhanced when available; else overwrite |
 | M2-1 NVMe media | Zero overwrite only |
+| ASM2362 NVMe dock (incoming) | Zero overwrite; SMART wear via `-d sntasmedia` |
+| SAS USB enclosure (incoming) | Zero overwrite; health via `-d scsi` log pages |
+
+### Incoming docks (pre-wired, not yet characterized)
+
+When the new hardware arrives, run `sudo tools/dock_characterize.sh`, then add
+slots to `SLOT_LAYOUT` (`drivestation/models.py`) and `config/slots.toml` with:
+
+- `bridge = "asm2362"` — StarTech / ACASIS ASM2362 NVMe dock. Identify +
+  NVMe SMART (wear %) go through `smartctl -d sntasmedia`; grading works.
+- `bridge = "sas_usb"` — Maiwo (or similar) SAS/SATA enclosure. SAS drives
+  identify and grade via `smartctl -d scsi` (grown defects, uncorrected error
+  counters, endurance for SAS SSDs); SATA drives in the same bays use `sat`.
+  If the enclosure blocks SCSI log pages, drives show health UNKNOWN — wipe
+  still works.
 
 SATA dock is **not** hot-swap: power-cycle the port after inserting/removing.
 NVMe docks and M2-1 are hot-swap.

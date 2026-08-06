@@ -114,10 +114,20 @@ class Station:
                     label=str(usage_raw.get("label") or ""),
                     detail=str(usage_raw.get("detail") or ""),
                 )
+            # Preview which wipe method will run, so the operator sees
+            # "ZERO OVERWRITE" vs "ATA SECURE ERASE" before confirming.
+            planned: Optional[WipeMethod] = None
+            try:
+                planned = choose_method(
+                    info.drive_type,
+                    self.backend.supported_wipe_methods(slot_id))
+            except HardwareError:
+                pass
             with self._lock:
                 slot.drive = info
                 slot.health = health
                 slot.usage = usage
+                slot.wipe_method = planned
                 slot.status = SlotStatus.READY
                 slot.awaiting_confirm = True
                 if health.verdict in (HealthVerdict.SCRAP, HealthVerdict.FAIL):

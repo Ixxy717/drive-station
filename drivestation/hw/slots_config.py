@@ -10,7 +10,12 @@ from ..models import SLOT_LAYOUT
 
 DEFAULT_SLOTS_PATH = Path(__file__).resolve().parents[2] / "config" / "slots.toml"
 
-VALID_BRIDGES = frozenset({"asmedia_sata", "rtl9210", "rtl9220"})
+# asm2362  — ASMedia ASM2362 NVMe bridge (StarTech 1USB3-NVME-DOCK, ACASIS M03);
+#            NVMe SMART via `smartctl -d sntasmedia`.
+# sas_usb  — USB SAS/SATA enclosure (Maiwo K3016S etc); SAS drives answer
+#            `smartctl -d scsi`, SATA drives behind it answer `-d sat`.
+VALID_BRIDGES = frozenset(
+    {"asmedia_sata", "rtl9210", "rtl9220", "asm2362", "sas_usb"})
 
 
 @dataclass(frozen=True)

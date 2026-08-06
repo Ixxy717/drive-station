@@ -21,7 +21,11 @@ THRESHOLDS = {
     "hdd_uncorrectable_fail_at": 1,
     # HDD score deduction per reallocated sector (display % only):
     "hdd_realloc_penalty": 2,
+    # SAS grown defect list entries. Strictly more than this → SCRAP.
+    "sas_defects_scrap_above": 5,
 }
+
+FROZEN_WARNING = "ATA security frozen — replug dock for fast secure erase"
 
 
 def evaluate_health(info: DriveInfo, raw: dict) -> HealthResult:
@@ -31,6 +35,8 @@ def evaluate_health(info: DriveInfo, raw: dict) -> HealthResult:
         return _evaluate_sata_ssd(raw)
     if info.drive_type == DriveType.SATA_HDD:
         return _evaluate_hdd(raw)
+    if info.drive_type in (DriveType.SAS_HDD, DriveType.SAS_SSD):
+        return _evaluate_sas(raw, ssd=info.drive_type == DriveType.SAS_SSD)
     return HealthResult(HealthVerdict.UNKNOWN, warnings=["Unknown drive type"], raw=raw)
 
 
@@ -75,8 +81,65 @@ def _evaluate_nvme(raw: dict) -> HealthResult:
         warnings=["Health unknown — USB bridge blocks NVMe SMART"], raw=raw)
 
 
+def _evaluate_sas(raw: dict, ssd: bool) -> HealthResult:
+    """SAS drives grade on SCSI log pages: grown defects, uncorrected error
+    counters, endurance indicator (SSDs)."""
+    warnings: list[str] = []
+
+    if raw.get("smart_passed") is False:
+        return HealthResult(
+            HealthVerdict.SCRAP, warnings=["SCRAP — SMART failure"], raw=raw)
+
+    uncorrected = sum(int(raw.get(k, 0)) for k in
+                      ("read_uncorrected", "write_uncorrected",
+                       "verify_uncorrected"))
+    defects = raw.get("grown_defects")
+
+    scrap_reasons: list[str] = []
+    if uncorrected > 0:
+        scrap_reasons.append(f"uncorrected errors: {uncorrected}")
+    if defects is not None and int(defects) > THRESHOLDS["sas_defects_scrap_above"]:
+        scrap_reasons.append(
+            f"grown defects: {defects} "
+            f"(over {THRESHOLDS['sas_defects_scrap_above']})")
+
+    percent = None
+    if ssd and "percentage_used" in raw:
+        percent = max(0, min(100, 100 - int(raw["percentage_used"])))
+        if percent <= THRESHOLDS["ssd_scrap_at_or_below"]:
+            scrap_reasons.append(
+                f"wear at or below {THRESHOLDS['ssd_scrap_at_or_below']}%")
+    elif not ssd and defects is not None:
+        percent = max(0, 100 - int(defects) * THRESHOLDS["hdd_realloc_penalty"]
+                      - (30 if uncorrected else 0))
+        if percent <= THRESHOLDS["hdd_scrap_at_or_below"]:
+            scrap_reasons.append(
+                f"health {percent}% (at or below "
+                f"{THRESHOLDS['hdd_scrap_at_or_below']}%)")
+
+    if scrap_reasons:
+        warnings.append("SCRAP — " + "; ".join(scrap_reasons))
+        return HealthResult(HealthVerdict.SCRAP, percent=percent,
+                            warnings=warnings, raw=raw)
+
+    # Nothing usable came back — likely the enclosure blocks SCSI log pages.
+    if raw.get("smart_passed") is None and defects is None and \
+            "percentage_used" not in raw:
+        return HealthResult(
+            HealthVerdict.UNKNOWN, percent=None,
+            warnings=["Health unknown — enclosure returned no SCSI health"],
+            raw=raw)
+
+    if defects:
+        warnings.append(f"Grown defects: {defects}")
+    return HealthResult(HealthVerdict.GOOD, percent=percent,
+                        warnings=warnings, raw=raw)
+
+
 def _evaluate_sata_ssd(raw: dict) -> HealthResult:
     warnings: list[str] = []
+    if raw.get("ata_frozen"):
+        warnings.append(FROZEN_WARNING)
     if raw.get("smart_passed") is False:
         return HealthResult(
             HealthVerdict.SCRAP, warnings=["SCRAP — SMART failure"], raw=raw)
@@ -84,7 +147,7 @@ def _evaluate_sata_ssd(raw: dict) -> HealthResult:
     if percent is None:
         return HealthResult(
             HealthVerdict.UNKNOWN, percent=None,
-            warnings=["Health unknown — no wear attribute from this drive"],
+            warnings=warnings + ["Health unknown — no wear attribute from this drive"],
             raw=raw)
     percent = max(0, min(100, int(percent)))
     verdict = _ssd_life_verdict(percent, warnings)
@@ -93,6 +156,8 @@ def _evaluate_sata_ssd(raw: dict) -> HealthResult:
 
 def _evaluate_hdd(raw: dict) -> HealthResult:
     warnings: list[str] = []
+    if raw.get("ata_frozen"):
+        warnings.append(FROZEN_WARNING)
     if raw.get("smart_passed") is False:
         return HealthResult(
             HealthVerdict.SCRAP, warnings=["SCRAP — SMART failure"], raw=raw)

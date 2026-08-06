@@ -1,0 +1,24 @@
+; drive-station systemd unit (template).
+; @REPO@ and @PY@ are filled in by deploy/install.sh — run that, don't copy
+; this file by hand.
+
+[Unit]
+Description=Drive Station wipe/test board
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+; Root is required: raw block device reads/writes, hdparm, dd.
+User=root
+WorkingDirectory=@REPO@
+Environment=DRIVESTATION_MODE=real
+ExecStart=@PY@ run.py
+Restart=always
+RestartSec=5
+; A wipe in flight must not be killed politely mid-write on shutdown either
+; way, but give dd a moment to flush.
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

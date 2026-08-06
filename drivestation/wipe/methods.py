@@ -26,6 +26,9 @@ PREFERENCE: dict[DriveType, list[WipeMethod]] = {
         WipeMethod.ATA_SECURE_ERASE_ENHANCED,
         WipeMethod.ZERO_OVERWRITE,
     ],
+    # SAS: SCSI FORMAT UNIT / sanitize not implemented yet — overwrite only.
+    DriveType.SAS_HDD: [WipeMethod.ZERO_OVERWRITE],
+    DriveType.SAS_SSD: [WipeMethod.ZERO_OVERWRITE],
     DriveType.UNKNOWN: [WipeMethod.ZERO_OVERWRITE],
 }
 

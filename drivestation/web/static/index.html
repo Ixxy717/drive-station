@@ -278,8 +278,9 @@ function tileHTML(s, busyByGroup) {
       const busy = s.status === "WIPING" || s.status === "VERIFYING";
       if (h.warnings.length && !busy) body += row("Flags", h.warnings.join(" · "), "flags");
     }
-    if (s.wipe_method && s.status !== "READY") {
-      body += row("Method", s.wipe_method.replaceAll("_", " "), "mono");
+    if (s.wipe_method) {
+      const label = s.status === "READY" ? "Planned" : "Method";
+      body += row(label, s.wipe_method.replaceAll("_", " "), "mono");
     }
     if (s.status === "PASSED") {
       body += row("Listing", `<a class="listing" href="/d/${encodeURIComponent(d.serial)}">/d/${d.serial}</a>`);

@@ -23,26 +23,65 @@ def _smartctl_json(dev_path: str, extra: list[str], run: RunCmd) -> Optional[dic
     return data
 
 
+# smartctl NVMe-over-USB tunnel device type per bridge chip.
+NVME_TUNNEL_BY_BRIDGE = {
+    "rtl9210": "sntrealtek",
+    "rtl9220": "sntrealtek",
+    "asm2362": "sntasmedia",
+}
+
+
+def _identity_present(data: Optional[dict]) -> bool:
+    return bool(data and (data.get("model_name") or data.get("serial_number")
+                          or data.get("scsi_model")
+                          or data.get("ata_smart_data")))
+
+
 def _pick_identify(dev_path: str, bridge: str, run: RunCmd) -> dict:
-    """Try sat first; for Realtek NVMe bridges also try sntrealtek."""
+    """Try sat first; NVMe bridges get their tunnel; SAS enclosures get scsi."""
+    if bridge == "sas_usb":
+        # SAS drives never answer sat — go straight to scsi, then sat for
+        # SATA drives sitting in the same enclosure.
+        data = _smartctl_json(dev_path, ["-i", "-d", "scsi"], run)
+        if _identity_present(data) and _is_sas(data):
+            return data
+        sat = _smartctl_json(dev_path, ["-i", "-d", "sat"], run)
+        if _identity_present(sat):
+            return sat
+        return data if _identity_present(data) else (
+            _smartctl_json(dev_path, ["-i"], run) or {})
+
     data = _smartctl_json(dev_path, ["-i", "-d", "sat"], run)
-    if data and (data.get("model_name") or data.get("serial_number")
-                 or data.get("scsi_model") or (data.get("ata_smart_data"))):
+    if _identity_present(data):
         return data
     # Plain -i without -d
     data = _smartctl_json(dev_path, ["-i"], run) or {}
-    if bridge in ("rtl9210", "rtl9220"):
-        nvme = _smartctl_json(dev_path, ["-i", "-d", "sntrealtek"], run)
+    tunnel = NVME_TUNNEL_BY_BRIDGE.get(bridge)
+    if tunnel:
+        nvme = _smartctl_json(dev_path, ["-i", "-d", tunnel], run)
         if nvme and (nvme.get("model_name") or nvme.get("serial_number")
                      or nvme.get("nvme_smart_health_information_log")):
             # Merge: prefer NVMe health later; keep ATA identity if present.
             merged = dict(data)
-            merged["_sntrealtek"] = nvme
+            merged["_nvme_tunnel"] = nvme
             for key in ("model_name", "serial_number", "user_capacity"):
                 if not merged.get(key) and nvme.get(key):
                     merged[key] = nvme[key]
             return merged
     return data
+
+
+def _is_sas(data: Optional[dict]) -> bool:
+    """True when smartctl talked SCSI to a real SAS target (not a SAT shim)."""
+    if not data:
+        return False
+    protocol = str((data.get("device") or {}).get("protocol", "")).upper()
+    if protocol != "SCSI":
+        return False
+    # SAT-tunneled SATA drives also report SCSI protocol but carry ATA info.
+    if data.get("ata_version") or data.get("sata_version"):
+        return False
+    return True
 
 
 def _manufacturer_model(model: str) -> tuple[str, str]:
@@ -67,17 +106,24 @@ def _manufacturer_model(model: str) -> tuple[str, str]:
 
 
 def _classify_drive_type(data: dict, slot: SlotConfig) -> DriveType:
-    # Explicit NVMe identify via sntrealtek
-    if data.get("_sntrealtek") or data.get("device", {}).get("protocol") == "NVMe":
-        if slot.bridge in ("rtl9210", "rtl9220"):
+    # SAS enclosure with a real SCSI target
+    if slot.bridge == "sas_usb" and _is_sas(data):
+        rotation = data.get("rotation_rate")
+        if rotation == "Solid State Device" or rotation == 0 or rotation == "0":
+            return DriveType.SAS_SSD
+        return DriveType.SAS_HDD
+
+    # Explicit NVMe identify via bridge tunnel
+    if data.get("_nvme_tunnel") or data.get("device", {}).get("protocol") == "NVMe":
+        if slot.bridge in NVME_TUNNEL_BY_BRIDGE:
             return DriveType.NVME
     protocol = (data.get("device") or {}).get("protocol", "")
     if str(protocol).upper() == "NVME":
         return DriveType.NVME
 
     model = (data.get("model_name") or "").upper()
-    # RTL9210 always hosts NVMe sticks (presented as SCSI)
-    if slot.bridge == "rtl9210":
+    # RTL9210 / ASM2362 always host NVMe sticks (presented as SCSI)
+    if slot.bridge in ("rtl9210", "asm2362"):
         return DriveType.NVME
 
     rotation = data.get("rotation_rate")
@@ -101,7 +147,7 @@ def _classify_drive_type(data: dict, slot: SlotConfig) -> DriveType:
 
 
 def _capacity_bytes(data: dict) -> int:
-    for blob in (data, data.get("_sntrealtek") or {}):
+    for blob in (data, data.get("_nvme_tunnel") or {}):
         if not isinstance(blob, dict):
             continue
         uc = blob.get("user_capacity") or {}
@@ -152,7 +198,7 @@ def read_identity(
     # Reject bridge fake serials
     if not serial or re.fullmatch(r"0+", serial) or serial.startswith("0123456789"):
         # try nested
-        nested = data.get("_sntrealtek") or {}
+        nested = data.get("_nvme_tunnel") or {}
         serial = (nested.get("serial_number") or "").strip()
         if not model:
             model = (nested.get("model_name") or "").strip()
@@ -254,21 +300,24 @@ def _nvme_health_useful(raw: dict[str, Any]) -> bool:
     ))
 
 
-def _read_nvme_health_usb(dev_path: str, run: RunCmd) -> dict[str, Any]:
-    """Best-effort NVMe SMART through Realtek USB bridges (sntrealtek tunnel).
+def _read_nvme_health_usb(
+    dev_path: str, run: RunCmd, tunnel: str = "sntrealtek",
+) -> dict[str, Any]:
+    """Best-effort NVMe SMART through a USB bridge tunnel (sntrealtek or
+    sntasmedia).
 
-    Phase 0 characterization mistakenly ran health WITHOUT ``-d sntrealtek``.
+    Phase 0 characterization mistakenly ran health WITHOUT the tunnel flag.
     Identify often works; Get Log Page (wear) needs the tunnel and working
     dock firmware. We try every known smartctl form, then text parse.
     """
     raw: dict[str, Any] = {}
     attempts = (
-        ["-a", "-d", "sntrealtek"],
-        ["-x", "-d", "sntrealtek"],
-        ["-A", "-H", "-d", "sntrealtek"],
+        ["-a", "-d", tunnel],
+        ["-x", "-d", tunnel],
+        ["-A", "-H", "-d", tunnel],
         ["-a", "-d", "auto"],
-        ["-a", "-d", "sntrealtek,/sat"],
-        ["-l", "ssd", "-d", "sntrealtek"],
+        ["-a", "-d", f"{tunnel},/sat"],
+        ["-l", "ssd", "-d", tunnel],
     )
     for extra in attempts:
         nvme = _smartctl_json(dev_path, extra, run)
@@ -291,10 +340,10 @@ def _read_nvme_health_usb(dev_path: str, run: RunCmd) -> dict[str, Any]:
             continue
 
     for extra in (
-        ["-a", "-d", "sntrealtek"],
-        ["-x", "-d", "sntrealtek"],
+        ["-a", "-d", tunnel],
+        ["-x", "-d", tunnel],
         ["-a", "-d", "auto"],
-        ["-H", "-A", "-d", "sntrealtek"],
+        ["-H", "-A", "-d", tunnel],
     ):
         code, out, err = run(["smartctl", *extra, dev_path])
         text = (out or "") + "\n" + (err or "")
@@ -306,8 +355,10 @@ def _read_nvme_health_usb(dev_path: str, run: RunCmd) -> dict[str, Any]:
         if _nvme_health_useful(raw) and "percentage_used" in raw:
             return raw
 
-    # Raw Realtek tunnel via sg_raw (same CDB smartmontools uses)
-    raw.update(_sg_raw_realtek_smart(dev_path, run))
+    # Raw Realtek tunnel via sg_raw (same CDB smartmontools uses).
+    # The CDB is Realtek-specific — skip on other bridges.
+    if tunnel == "sntrealtek":
+        raw.update(_sg_raw_realtek_smart(dev_path, run))
     return raw
 
 
@@ -359,6 +410,48 @@ def _sg_raw_realtek_smart(dev_path: str, run: RunCmd) -> dict[str, Any]:
     return raw
 
 
+def _read_sas_health(dev_path: str, run: RunCmd) -> dict[str, Any]:
+    """SAS drive health via SCSI log pages (smartctl -d scsi).
+
+    Only sets keys the drive actually reported, so the policy layer can tell
+    "healthy" apart from "enclosure returned nothing".
+    """
+    raw: dict[str, Any] = {}
+    health = _smartctl_json(dev_path, ["-A", "-H", "-d", "scsi"], run) or {}
+
+    passed = (health.get("smart_status") or {}).get("passed")
+    if passed is not None:
+        raw["smart_passed"] = bool(passed)
+
+    defects = health.get("scsi_grown_defect_list")
+    if defects is not None:
+        try:
+            raw["grown_defects"] = int(defects)
+        except (TypeError, ValueError):
+            pass
+
+    counters = health.get("scsi_error_counter_log") or {}
+    for op in ("read", "write", "verify"):
+        entry = counters.get(op) or {}
+        val = entry.get("total_uncorrected_errors")
+        if val is not None:
+            try:
+                raw[f"{op}_uncorrected"] = int(val)
+            except (TypeError, ValueError):
+                pass
+
+    # SAS SSD wear (Solid State Media log page)
+    for key in ("scsi_percentage_used_endurance_indicator",
+                "percentage_used_endurance_indicator"):
+        if health.get(key) is not None:
+            try:
+                raw["percentage_used"] = int(health[key])
+                break
+            except (TypeError, ValueError):
+                pass
+    return raw
+
+
 def read_health(
     dev_path: str,
     slot: SlotConfig,
@@ -367,14 +460,25 @@ def read_health(
 ) -> dict[str, Any]:
     raw: dict[str, Any] = {}
 
-    if drive_type == DriveType.NVME or slot.bridge == "rtl9210":
-        return _read_nvme_health_usb(dev_path, run)
+    if drive_type in (DriveType.SAS_HDD, DriveType.SAS_SSD):
+        return _read_sas_health(dev_path, run)
+
+    if drive_type == DriveType.NVME or slot.bridge in ("rtl9210", "asm2362"):
+        tunnel = NVME_TUNNEL_BY_BRIDGE.get(slot.bridge, "sntrealtek")
+        return _read_nvme_health_usb(dev_path, run, tunnel)
 
     health = _smartctl_json(dev_path, ["-A", "-H", "-d", "sat"], run) \
         or _smartctl_json(dev_path, ["-A", "-H"], run) or {}
     passed = health.get("smart_status", {}).get("passed")
     if passed is not None:
         raw["smart_passed"] = bool(passed)
+
+    # Frozen security blocks fast secure erase (dd fallback still works).
+    # Surfaced as a board warning so the operator can replug the dock.
+    if drive_type in (DriveType.SATA_SSD, DriveType.SATA_HDD):
+        sec = ata_security_state(dev_path, run)
+        if sec["frozen"]:
+            raw["ata_frozen"] = True
 
     table = (health.get("ata_smart_attributes") or {}).get("table") or []
     if drive_type == DriveType.SATA_HDD:

@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Certificate of Data Destruction</title>
+<style>
+  :root {
+    --ink: #1b1d20;
+    --muted: #6a6e75;
+    --ok: #178040;
+    --alarm: #c03328;
+    --line: #d4d4cf;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #34373d; color: var(--ink);
+    font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+    min-height: 100vh; padding: 28px 16px 48px;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; }
+  .nav {
+    display: flex; justify-content: space-between; align-items: center;
+    color: #cdd0d5; font-size: 11px; font-weight: 700; letter-spacing: 1.5px;
+    margin-bottom: 16px;
+  }
+  .nav a { color: #a6a9af; text-decoration: none; }
+  .nav a:hover { color: #fff; }
+  #err {
+    background: #3a1e1c; color: #ffd4d0; border: 1px solid #c03328;
+    padding: 18px; display: none;
+  }
+  #sheet {
+    background: #fff; border: 1px solid #101113;
+    padding: 44px 48px 40px; display: none;
+  }
+  .head { display: flex; justify-content: space-between; gap: 20px; }
+  .org { font-size: 12px; font-weight: 800; letter-spacing: 2.5px;
+         color: var(--muted); text-transform: uppercase; }
+  h1 { font-size: 26px; font-weight: 800; margin: 6px 0 2px; }
+  .certno { font-family: Consolas, monospace; font-size: 13px; color: var(--muted); }
+  #qr { width: 108px; height: 108px; flex: none; }
+  #qr img { width: 100%; height: 100%; }
+  .statement {
+    margin: 26px 0 22px; font-size: 14px; line-height: 1.6;
+  }
+  .verdict {
+    display: inline-block; margin: 0 0 22px; padding: 8px 14px;
+    font-weight: 800; letter-spacing: 1.5px; font-size: 14px;
+    border: 2px solid var(--ok); color: var(--ok);
+  }
+  .verdict.bad { border-color: var(--alarm); color: var(--alarm); }
+  .grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 0 40px;
+  }
+  .row {
+    display: grid; grid-template-columns: 130px 1fr; gap: 6px 10px;
+    padding: 8px 0; border-top: 1px solid var(--line); font-size: 13.5px;
+  }
+  .row .k {
+    font-size: 10px; font-weight: 700; letter-spacing: .8px;
+    color: var(--muted); text-transform: uppercase; padding-top: 3px;
+  }
+  .row .v { font-weight: 600; overflow-wrap: anywhere; }
+  .mono { font-family: "Cascadia Mono", Consolas, monospace; font-size: 12.5px; }
+  .sig {
+    margin-top: 44px; display: grid; grid-template-columns: 1fr 1fr;
+    gap: 40px;
+  }
+  .sig .box { border-top: 1px solid var(--ink); padding-top: 6px;
+    font-size: 10.5px; font-weight: 700; letter-spacing: 1px;
+    color: var(--muted); text-transform: uppercase; }
+  .fine {
+    margin-top: 26px; font-size: 10.5px; color: var(--muted); line-height: 1.5;
+  }
+  .actions { display: flex; gap: 10px; margin: 18px auto 0; max-width: 760px; }
+  button {
+    font-family: inherit; font-size: 12px; font-weight: 700;
+    letter-spacing: 1.2px; border: 1px solid #101113;
+    background: #1b1d20; color: #fff; padding: 12px 16px; cursor: pointer;
+  }
+  @media print {
+    body { background: #fff; padding: 0; }
+    .nav, .actions, #err { display: none !important; }
+    #sheet { border: none; padding: 10mm 6mm; }
+    .wrap { max-width: none; }
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="nav">
+      <span>DRIVE STATION</span>
+      <span><a href="/">BOARD</a> · <a href="/logs">LOGS</a> · <a id="dlink" href="#">RECORD</a></span>
+    </div>
+    <div id="err"></div>
+
+    <div id="sheet">
+      <div class="head">
+        <div>
+          <div class="org" id="org">—</div>
+          <h1>Certificate of Data Destruction</h1>
+          <div class="certno" id="certno">—</div>
+        </div>
+        <div id="qr"></div>
+      </div>
+
+      <p class="statement" id="statement">—</p>
+      <div class="verdict" id="verdict">—</div>
+
+      <div class="grid">
+        <div id="colA"></div>
+        <div id="colB"></div>
+      </div>
+
+      <div class="sig">
+        <div class="box">Technician signature</div>
+        <div class="box">Date</div>
+      </div>
+
+      <p class="fine" id="fine">—</p>
+    </div>
+
+    <div class="actions">
+      <button onclick="window.print()">PRINT / SAVE PDF</button>
+    </div>
+  </div>
+
+<script>
+// NIST SP 800-88 Rev. 1 sanitization category per wipe method.
+const NIST = {
+  ZERO_OVERWRITE: ["Clear", "Single-pass overwrite of all addressable locations with zeros"],
+  ATA_SECURE_ERASE: ["Purge", "ATA SECURITY ERASE UNIT"],
+  ATA_SECURE_ERASE_ENHANCED: ["Purge", "ATA SECURITY ERASE UNIT (enhanced)"],
+  NVME_SANITIZE_CRYPTO: ["Purge", "NVMe Sanitize (cryptographic erase)"],
+  NVME_SANITIZE_BLOCK: ["Purge", "NVMe Sanitize (block erase)"],
+  NVME_FORMAT_SECURE: ["Purge", "NVMe Format NVM (secure erase)"],
+};
+
+const VERIFY_TEXT = {
+  ZERO_OVERWRITE: "multi-region read-back sampling (all-zero check) and " +
+    "partition/filesystem signature scan",
+  DEFAULT: "post-erase device readability check and partition/filesystem " +
+    "signature scan",
+};
+
+function serialFromPath() {
+  const parts = location.pathname.split("/").filter(Boolean);
+  return decodeURIComponent(parts[1] || "");
+}
+
+function capacityLabel(bytes) {
+  const gb = (bytes || 0) / 1e9;
+  if (gb >= 1000) {
+    const tb = gb / 1000;
+    return Number.isInteger(tb) ? `${tb}TB` : `${tb.toFixed(1)}TB`;
+  }
+  return `${Math.round(gb)}GB`;
+}
+
+function kindLabel(t) {
+  return ({ NVME: "NVMe SSD", SATA_SSD: "SATA SSD", SATA_HDD: "SATA HDD",
+            SAS_HDD: "SAS HDD", SAS_SSD: "SAS SSD" })[t] || "Storage device";
+}
+
+function row(k, v, cls = "") {
+  return `<div class="row"><span class="k">${k}</span><span class="v ${cls}">${v}</span></div>`;
+}
+
+function showErr(msg) {
+  const el = document.getElementById("err");
+  el.style.display = "block";
+  el.textContent = msg;
+}
+
+async function load() {
+  const serial = serialFromPath();
+  if (!serial) { showErr("Missing serial in URL."); return; }
+  document.title = `Certificate ${serial}`;
+  document.getElementById("dlink").href = `/d/${encodeURIComponent(serial)}`;
+
+  const [recRes, cfgRes] = await Promise.all([
+    fetch(`/api/records?serial=${encodeURIComponent(serial)}`),
+    fetch("/api/config"),
+  ]);
+  const r = ((await recRes.json()).records || [])[0];
+  const cfg = cfgRes.ok ? await cfgRes.json() : {};
+  if (!r) { showErr(`No wipe record for serial ${serial}`); return; }
+
+  const passed = r.result === "PASSED";
+  const method = r.wipe_method || "";
+  const [nistCat, nistDesc] = NIST[method] || ["—", method.replaceAll("_", " ")];
+  const date = (r.wipe_finished_at || r.wipe_started_at || "").slice(0, 10);
+
+  document.getElementById("org").textContent = cfg.org || "Drive Station";
+  document.getElementById("certno").textContent =
+    `Certificate no. DS-${String(r.id).padStart(6, "0")} · issued ${date || "—"}`;
+
+  document.getElementById("statement").innerHTML = passed
+    ? `This certifies that the storage device identified below was sanitized ` +
+      `using the <b>${nistCat}</b> method described in NIST SP 800-88 Rev. 1 ` +
+      `(${nistDesc}), and that post-sanitization verification ` +
+      `(${VERIFY_TEXT[method] || VERIFY_TEXT.DEFAULT}) completed successfully. ` +
+      `All user-addressable data on this device has been destroyed and is not ` +
+      `recoverable by ordinary means.`
+    : `The sanitization attempt recorded below did <b>not</b> complete ` +
+      `successfully. This device must not be considered sanitized.`;
+
+  const verdict = document.getElementById("verdict");
+  verdict.textContent = passed ? "SANITIZED · VERIFIED" : `NOT VERIFIED — ${r.result || "INCOMPLETE"}`;
+  verdict.className = passed ? "verdict" : "verdict bad";
+
+  let a = "";
+  a += row("Device", `${r.manufacturer || ""} ${r.model || ""}`);
+  a += row("Type", kindLabel(r.drive_type));
+  a += row("Capacity", capacityLabel(r.capacity_bytes));
+  a += row("Serial", r.serial, "mono");
+  document.getElementById("colA").innerHTML = a;
+
+  let b = "";
+  b += row("Method", nistDesc);
+  b += row("NIST 800-88", nistCat);
+  b += row("Sanitized on", date || "—");
+  b += row("Batch / lot", r.batch || "—");
+  document.getElementById("colB").innerHTML = b;
+
+  document.getElementById("fine").textContent =
+    `Record #${r.id} in the ${cfg.org || "Drive Station"} wipe log. ` +
+    `The QR code links to the live record at ${location.origin}/d/${r.serial}. ` +
+    `Slot ${r.slot || "—"} · ` +
+    (r.usage_label ? `pre-wipe: ${r.usage_label} · ` : "") +
+    `health at intake: ${r.health_percent != null ? r.health_percent + "% " : ""}${r.health_verdict || "—"}.`;
+
+  // QR is optional (requires segno server-side); hide the box if unavailable.
+  const qrBox = document.getElementById("qr");
+  const qrUrl = `/api/records/${encodeURIComponent(r.serial)}/qr.svg`;
+  const probe = await fetch(qrUrl, { method: "GET" });
+  if (probe.ok) qrBox.innerHTML = `<img src="${qrUrl}" alt="QR to wipe record">`;
+  else qrBox.style.display = "none";
+
+  document.getElementById("sheet").style.display = "block";
+}
+
+load();
+</script>
+</body>
+</html>

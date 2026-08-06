@@ -165,10 +165,16 @@ class LinuxBackend(HardwareBackend):
         info = read_identity(path, cfg, self._run)
         methods: list[WipeMethod] = []
 
-        # NVMe-through-USB (RTL9210) or NVMe in M2: overwrite only
+        # NVMe-through-USB or NVMe in M2: overwrite only
         if info and info.drive_type == DriveType.NVME:
             return [WipeMethod.ZERO_OVERWRITE]
-        if cfg.bridge == "rtl9210":
+        if cfg.bridge in ("rtl9210", "asm2362"):
+            return [WipeMethod.ZERO_OVERWRITE]
+
+        # SAS through a USB enclosure: no ATA security; overwrite only
+        if cfg.bridge == "sas_usb" or (
+                info and info.drive_type in (DriveType.SAS_HDD,
+                                             DriveType.SAS_SSD)):
             return [WipeMethod.ZERO_OVERWRITE]
 
         # ASMedia SATA + RTL9220 SATA media: enhanced erase when available

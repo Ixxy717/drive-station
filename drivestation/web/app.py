@@ -9,8 +9,9 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import (FileResponse, PlainTextResponse, Response,
+                               StreamingResponse)
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -23,6 +24,8 @@ from ..station import Station
 log = logging.getLogger("drivestation")
 
 MODE = os.environ.get("DRIVESTATION_MODE", "sim")
+# Shown on certificates of data destruction. Set to the business name.
+ORG = os.environ.get("DRIVESTATION_ORG", "Drive Station")
 STATIC = Path(__file__).parent / "static"
 REPO_ROOT = Path(__file__).resolve().parents[2]
 REPORTS_DIR = Path(os.environ.get("DRIVESTATION_REPORTS", REPO_ROOT / "reports"))
@@ -104,9 +107,50 @@ def drive_page(serial: str) -> FileResponse:
     return FileResponse(STATIC / "drive.html")
 
 
+@app.get("/cert/{serial}")
+def cert_page(serial: str) -> FileResponse:
+    """Printable certificate of data destruction (NIST SP 800-88 wording)."""
+    rows = joblog.by_serial(serial)
+    if not rows:
+        raise HTTPException(status_code=404, detail="No wipe record for that serial")
+    return FileResponse(STATIC / "cert.html")
+
+
 @app.get("/api/state")
 def state() -> dict:
     return {"sim_mode": MODE != "real", "slots": station.snapshot()}
+
+
+@app.get("/api/config")
+def config() -> dict:
+    return {"org": ORG, "sim_mode": MODE != "real", "batch": station.batch}
+
+
+class BatchSet(BaseModel):
+    batch: Optional[str] = None
+
+
+@app.post("/api/batch")
+def set_batch(req: BatchSet) -> dict:
+    """Set the active batch/lot label; stamped onto every new wipe job."""
+    station.batch = (req.batch or "").strip() or None
+    return {"ok": True, "batch": station.batch}
+
+
+@app.get("/api/records/{serial}/qr.svg")
+def record_qr(serial: str, request: Request) -> Response:
+    """QR code pointing at the drive's online wipe record (/d/SERIAL)."""
+    try:
+        import segno
+    except ImportError:
+        raise HTTPException(status_code=501,
+                            detail="segno not installed (pip install segno)")
+    if not joblog.by_serial(serial):
+        raise HTTPException(status_code=404, detail="No record for that serial")
+    url = f"{request.base_url}d/{serial}"
+    buf = io.BytesIO()
+    segno.make(url, error="m").save(buf, kind="svg", scale=4, border=1)
+    return Response(content=buf.getvalue(), media_type="image/svg+xml")
 
 
 @app.post("/api/slots/{slot_id}/wipe")
@@ -127,9 +171,15 @@ def decline(slot_id: str) -> dict:
 @app.get("/api/records")
 def records(
     serial: Optional[str] = None,
+    batch: Optional[str] = None,
     limit: int = Query(100, ge=1, le=2000),
 ) -> dict:
-    rows = joblog.by_serial(serial) if serial else joblog.recent(limit)
+    if serial:
+        rows = joblog.by_serial(serial)
+    elif batch:
+        rows = joblog.by_batch(batch, limit)
+    else:
+        rows = joblog.recent(limit)
     return {"records": rows}
 
 
@@ -165,8 +215,8 @@ def blurb(serial: str) -> str:
     capacity_gb = (r["capacity_bytes"] or 0) / 1_000_000_000
     capacity = (f"{capacity_gb / 1000:.0f}TB" if capacity_gb >= 1000
                 else f"{capacity_gb:.0f}GB")
-    kind = {"NVME": "NVMe SSD", "SATA_SSD": "SATA SSD",
-            "SATA_HDD": "SATA HDD"}.get(r["drive_type"], "drive")
+    kind = {"NVME": "NVMe SSD", "SATA_SSD": "SATA SSD", "SATA_HDD": "SATA HDD",
+            "SAS_HDD": "SAS HDD", "SAS_SSD": "SAS SSD"}.get(r["drive_type"], "drive")
     lines = [f"{r['manufacturer']} {r['model']} {capacity} {kind}"]
     if r["health_percent"] is not None:
         lines.append(f"Health: {r['health_percent']}% remaining")

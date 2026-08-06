@@ -21,6 +21,8 @@ class DriveType(str, Enum):
     NVME = "NVME"
     SATA_SSD = "SATA_SSD"
     SATA_HDD = "SATA_HDD"
+    SAS_HDD = "SAS_HDD"
+    SAS_SSD = "SAS_SSD"
     UNKNOWN = "UNKNOWN"
 
 

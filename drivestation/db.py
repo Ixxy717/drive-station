@@ -111,6 +111,14 @@ class JobLog:
                 (serial,)).fetchall()
         return [dict(r) for r in rows]
 
+    def by_batch(self, batch: str, limit: int = 2000) -> list[dict]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM jobs WHERE batch=? COLLATE NOCASE "
+                "ORDER BY id DESC LIMIT ?",
+                (batch, limit)).fetchall()
+        return [dict(r) for r in rows]
+
     def recent(self, limit: int = 100) -> list[dict]:
         with self._lock:
             rows = self._conn.execute(

@@ -66,6 +66,13 @@
         <button onclick="document.getElementById('q').value=''; load()">ALL</button>
         <span class="muted" id="meta"></span>
       </div>
+      <div class="row">
+        <input id="batch" placeholder="Active batch / client lot (stamped on new wipes)"
+               style="flex:1;min-width:220px">
+        <button onclick="setBatch()">SET BATCH</button>
+        <button onclick="filterBatch()">FILTER</button>
+        <span class="muted" id="batchMeta"></span>
+      </div>
       <div style="overflow-x:auto">
         <table>
           <thead>
@@ -96,9 +103,13 @@
     </div>
   </div>
 <script>
+let batchFilter = "";
+
 async function load() {
   const q = document.getElementById("q").value.trim();
-  const url = q ? `/api/records?serial=${encodeURIComponent(q)}` : "/api/records?limit=200";
+  let url = "/api/records?limit=200";
+  if (q) url = `/api/records?serial=${encodeURIComponent(q)}`;
+  else if (batchFilter) url = `/api/records?batch=${encodeURIComponent(batchFilter)}`;
   const data = await (await fetch(url)).json();
   const rows = data.records || [];
   document.getElementById("meta").textContent = `${rows.length} record(s)`;
@@ -117,9 +128,35 @@ async function load() {
       <td>
         <button onclick="blurb('${escAttr(r.serial || "")}')">BLURB</button>
         <a href="/d/${encodeURIComponent(r.serial || "")}" style="margin-left:8px;font-size:11px;font-weight:700;letter-spacing:1px;color:#2f6fc4;text-decoration:none">CARD</a>
+        <a href="/cert/${encodeURIComponent(r.serial || "")}" style="margin-left:8px;font-size:11px;font-weight:700;letter-spacing:1px;color:#2f6fc4;text-decoration:none">CERT</a>
       </td>
     </tr>`;
   }).join("") || `<tr><td colspan="8" class="muted">No jobs logged yet.</td></tr>`;
+}
+
+async function loadBatch() {
+  const res = await fetch("/api/config");
+  if (!res.ok) return;
+  const cfg = await res.json();
+  document.getElementById("batch").value = cfg.batch || "";
+  document.getElementById("batchMeta").textContent =
+    cfg.batch ? `active: ${cfg.batch}` : "no active batch";
+}
+
+async function setBatch() {
+  const value = document.getElementById("batch").value.trim();
+  await fetch("/api/batch", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ batch: value || null }),
+  });
+  await loadBatch();
+}
+
+function filterBatch() {
+  batchFilter = document.getElementById("batch").value.trim();
+  document.getElementById("q").value = "";
+  load();
 }
 
 async function blurb(serial) {
@@ -145,6 +182,7 @@ function escAttr(s) { return String(s).replace(/\\/g, "\\\\").replace(/'/g, "\\'
 
 load();
 loadFiles();
+loadBatch();
 </script>
 </body>
 </html>

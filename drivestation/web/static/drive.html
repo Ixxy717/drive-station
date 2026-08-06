@@ -88,6 +88,7 @@
       <div class="actions">
         <button onclick="downloadPng()">DOWNLOAD PNG</button>
         <button class="secondary" onclick="copyBlurb()">COPY BLURB</button>
+        <a class="btn secondary" id="certLink" href="#">CERTIFICATE</a>
       </div>
     </div>
     <p class="hint">
@@ -114,7 +115,8 @@ function capacityLabel(bytes) {
 }
 
 function kindLabel(t) {
-  return ({ NVME: "NVMe SSD", SATA_SSD: "SATA SSD", SATA_HDD: "SATA HDD" })[t] || "Drive";
+  return ({ NVME: "NVMe SSD", SATA_SSD: "SATA SSD", SATA_HDD: "SATA HDD",
+            SAS_HDD: "SAS HDD", SAS_SSD: "SAS SSD" })[t] || "Drive";
 }
 
 function row(k, v, cls = "") {
@@ -161,6 +163,7 @@ async function load() {
              passed ? "ok" : "bad");
   html += row("Record #", String(r.id), "mono");
   document.getElementById("rows").innerHTML = html;
+  document.getElementById("certLink").href = `/cert/${encodeURIComponent(r.serial)}`;
   document.getElementById("card").style.display = "block";
   window.__record = r;
 }

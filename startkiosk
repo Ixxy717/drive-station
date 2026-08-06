@@ -9,14 +9,18 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 REPO=""
-SELF="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || realpath "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")"
-if [[ -f "$(dirname "$SELF")/deploy/kiosk-install.sh" ]]; then
-    REPO="$(cd "$(dirname "$SELF")" && pwd)"
+if [[ -f /etc/drivestation-repo-path ]]; then
+    REPO="$(cat /etc/drivestation-repo-path 2>/dev/null || true)"
 fi
-if [[ -z "$REPO" ]]; then
+if [[ -z "$REPO" || ! -d "$REPO" ]]; then
     for candidate in /home/drivestation/drive-station /root/drive-station; do
         [[ -f "$candidate/deploy/kiosk-install.sh" ]] && REPO="$candidate" && break
     done
+fi
+
+# Refresh PATH copies from git checkout (never touches git file modes).
+if [[ -n "$REPO" && -f "$REPO/deploy/install-commands.sh" ]]; then
+    bash "$REPO/deploy/install-commands.sh" >/dev/null
 fi
 
 systemctl start drivestation 2>/dev/null || true

@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # Black screen / kiosk broken?
-#   sudo debugkiosk          (anywhere, after install)
-#   sudo bash debugkiosk     (from ~/drive-station after git pull)
+#   sudo debugkiosk
+#
+# Stops kiosk, restores console, writes a dump, and starts a LAN server
+# so another PC (or Cursor) can read it at:
+#   http://<ip>:2021/kiosk-debug.txt
 set -u
 
 if [[ $EUID -ne 0 ]]; then
@@ -9,27 +12,39 @@ if [[ $EUID -ne 0 ]]; then
     exit 1
 fi
 
-REPORT=/tmp/ds-kiosk-debug.txt
-# Also publish where the board can serve it for remote debugging.
-PUBLISH=""
-for candidate in /home/drivestation/drive-station /root/drive-station; do
-    if [[ -d "$candidate/reports" ]] || [[ -d "$candidate" ]]; then
-        mkdir -p "$candidate/reports"
-        PUBLISH="$candidate/reports/kiosk-debug.txt"
-        break
+# If the git checkout is newer than this installed copy, refresh + re-exec
+# (so git pull + sudo debugkiosk picks up fixes without stash games).
+REPO=""
+if [[ -f /etc/drivestation-repo-path ]]; then
+    REPO="$(cat /etc/drivestation-repo-path 2>/dev/null || true)"
+fi
+if [[ -z "$REPO" || ! -d "$REPO" ]]; then
+    for candidate in /home/drivestation/drive-station /root/drive-station; do
+        [[ -f "$candidate/debugkiosk" ]] && REPO="$candidate" && break
+    done
+fi
+if [[ -n "$REPO" && -f "$REPO/debugkiosk" && -f /usr/local/bin/debugkiosk ]]; then
+    if ! cmp -s "$REPO/debugkiosk" /usr/local/bin/debugkiosk; then
+        echo "Updating /usr/local/bin/debugkiosk from $REPO ..."
+        install -m 755 "$REPO/debugkiosk" /usr/local/bin/debugkiosk
+        install -m 755 "$REPO/fixkiosk" /usr/local/bin/fixkiosk 2>/dev/null || true
+        install -m 755 "$REPO/startkiosk" /usr/local/bin/startkiosk 2>/dev/null || true
+        echo "$REPO" > /etc/drivestation-repo-path
+        exec /usr/local/bin/debugkiosk "$@"
     fi
-done
-# Symlink target of this script → repo
-SELF="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")"
-if [[ -z "$PUBLISH" && -d "$(dirname "$SELF")/reports" ]]; then
-    PUBLISH="$(dirname "$SELF")/reports/kiosk-debug.txt"
-elif [[ -z "$PUBLISH" && -d "$(dirname "$SELF")" ]]; then
-    mkdir -p "$(dirname "$SELF")/reports"
-    PUBLISH="$(dirname "$SELF")/reports/kiosk-debug.txt"
+fi
+
+REPORT=/tmp/ds-kiosk-debug.txt
+SERVE_DIR=/tmp/ds-kiosk-lan
+PUBLISH=""
+if [[ -n "$REPO" ]]; then
+    mkdir -p "$REPO/reports"
+    PUBLISH="$REPO/reports/kiosk-debug.txt"
 fi
 
 {
     echo "===== drive-station kiosk debug $(date -Iseconds) ====="
+    echo "repo=$REPO"
     echo
 
     echo "--- stopping kiosk, restoring text console on tty1 ---"
@@ -40,7 +55,7 @@ fi
     echo "OK — Ctrl+Alt+F1 for login (F2/F3 also work)."
     echo
 
-    echo "--- ensuring board API is up (so dump is readable on LAN) ---"
+    echo "--- ensuring board API is up ---"
     systemctl start drivestation 2>/dev/null || true
     sleep 1
 
@@ -55,7 +70,6 @@ fi
     echo "GET http://127.0.0.1:8330/ → $code"
     IP=$(hostname -I 2>/dev/null | awk '{print $1}')
     echo "LAN board: http://${IP:-?}:8330/"
-    echo "LAN wipe : http://${IP:-?}:8330/wipe"
     echo
 
     echo "--- browsers / cage ---"
@@ -80,24 +94,37 @@ fi
     journalctl -u drivestation -n 20 --no-pager 2>&1 || true
 } | tee "$REPORT"
 
+[[ -n "$PUBLISH" ]] && cp -f "$REPORT" "$PUBLISH"
+
+# Dedicated LAN server so the dump is fetchable even if drivestation is dead.
+mkdir -p "$SERVE_DIR"
+cp -f "$REPORT" "$SERVE_DIR/kiosk-debug.txt"
 if [[ -n "$PUBLISH" ]]; then
-    cp -f "$REPORT" "$PUBLISH"
+    cp -f "$PUBLISH" "$SERVE_DIR/kiosk-debug.txt"
 fi
+# Stop any previous debug LAN server
+if [[ -f /tmp/ds-debug-lan.pid ]]; then
+    kill "$(cat /tmp/ds-debug-lan.pid)" 2>/dev/null || true
+    rm -f /tmp/ds-debug-lan.pid
+fi
+pkill -f 'python3 -m http.server 2021' 2>/dev/null || true
+nohup python3 -m http.server 2021 --bind 0.0.0.0 --directory "$SERVE_DIR" \
+    >/tmp/ds-debug-lan.log 2>&1 &
+echo $! > /tmp/ds-debug-lan.pid
+sleep 0.3
 
 IP=$(hostname -I 2>/dev/null | awk '{print $1}')
 echo
 echo "========================================"
 echo " Kiosk STOPPED. Text console restored."
-echo " Dump saved: $REPORT"
-[[ -n "$PUBLISH" ]] && echo " Also at:    $PUBLISH"
+echo " Dump: $REPORT"
 echo
-echo " Readable on the LAN (for remote debug):"
+echo " LAN SERVER RUNNING — open from another PC / Cursor:"
+echo "   http://${IP:-127.0.0.1}:2021/kiosk-debug.txt"
+echo
+echo " Also (if drivestation is up):"
 echo "   http://${IP:-127.0.0.1}:8330/api/debug/kiosk"
-echo "   http://${IP:-127.0.0.1}:8330/files/kiosk-debug.txt"
 echo
-echo " Board:"
-echo "   http://${IP:-127.0.0.1}:8330/"
-echo
-echo " Try screen again later:"
-echo "   sudo startkiosk"
+echo " Board: http://${IP:-127.0.0.1}:8330/"
+echo " Later: sudo startkiosk"
 echo "========================================"

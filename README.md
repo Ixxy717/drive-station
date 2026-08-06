@@ -87,15 +87,18 @@ sudo bash deploy/kiosk-install.sh
 The mini PC's attached monitor boots into a **fullscreen** board (cage +
 Chromium). **Alt+F4** closes it. A second monitor, if present, opens `/wipe`.
 
-**Stuck on a black screen?** (no `cd` needed after install)
+**Stuck on a black screen?** (no `cd` — commands are copies on PATH)
 
 ```
-sudo debugkiosk     # stop kiosk, restore console, print/save logs
+sudo debugkiosk     # stop kiosk, restore console, start LAN dump server :2021
 sudo fixkiosk       # just turn kiosk off
 sudo startkiosk     # turn it back on
 ```
 
-One-time (puts those commands on PATH): `sudo bash deploy/install-commands.sh`
+After `debugkiosk`, the dump is at `http://<mini-pc-ip>:2021/kiosk-debug.txt`.
+
+One-time / after pull: `sudo bash deploy/install-commands.sh`  
+(Copies into `/usr/local/bin` — does **not** dirty the git tree.)
 
 | URL | What |
 |-----|------|

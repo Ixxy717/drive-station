@@ -192,6 +192,11 @@ class Station:
                           and slot.wipe_only):
                         msgs.append(
                             "Wipe only — health not graded on this dock")
+                    # Surface ATA locked/frozen even when health is otherwise OK.
+                    for w in (health.warnings or []):
+                        if "LOCKED" in w or "frozen" in w.lower():
+                            if w not in msgs:
+                                msgs.append(w)
                     slot.message = " · ".join(msgs)
 
             if auto_start:
@@ -209,6 +214,20 @@ class Station:
                     return
                 slot.status = SlotStatus.ERROR
                 slot.message = f"Health check error: {exc}"
+        except Exception as exc:
+            log.exception("Identify stalled on %s", slot_id)
+            with self._lock:
+                if self._check_gen.get(slot_id) != gen:
+                    return
+                slot.status = SlotStatus.ERROR
+                slot.message = f"Identify failed — reseat drive ({exc})"
+        finally:
+            # Never leave the tile spinning CHECKING forever.
+            with self._lock:
+                if (self._check_gen.get(slot_id) == gen
+                        and slot.status == SlotStatus.CHECKING):
+                    slot.status = SlotStatus.ERROR
+                    slot.message = "Identify stalled — reseat drive"
 
     # -- operator actions ----------------------------------------------------
 

@@ -100,6 +100,7 @@ THRESHOLDS = {
 }
 
 FROZEN_WARNING = "ATA security frozen — replug dock for fast secure erase"
+LOCKED_WARNING = "ATA security LOCKED — password required; wipe may fail"
 
 
 def evaluate_health(info: DriveInfo, raw: dict) -> HealthResult:
@@ -214,6 +215,8 @@ def _evaluate_sata_ssd(raw: dict) -> HealthResult:
     warnings: list[str] = []
     if raw.get("ata_frozen"):
         warnings.append(FROZEN_WARNING)
+    if raw.get("ata_locked"):
+        warnings.append(LOCKED_WARNING)
     if raw.get("smart_passed") is False:
         return HealthResult(
             HealthVerdict.SCRAP, warnings=["SCRAP — SMART failure"], raw=raw)
@@ -232,6 +235,8 @@ def _evaluate_hdd(raw: dict) -> HealthResult:
     warnings: list[str] = []
     if raw.get("ata_frozen"):
         warnings.append(FROZEN_WARNING)
+    if raw.get("ata_locked"):
+        warnings.append(LOCKED_WARNING)
     if raw.get("smart_passed") is False:
         return HealthResult(
             HealthVerdict.SCRAP, warnings=["SCRAP — SMART failure"], raw=raw)

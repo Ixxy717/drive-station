@@ -94,6 +94,30 @@ Security:
     assert st["frozen"] is True
 
 
+def test_ata_security_locked_apple_style():
+    text = """
+Security: 
+	Master password revision code = 65534
+		supported
+		enabled
+		locked
+	not	frozen
+	not	expired: security count
+		supported: enhanced erase
+	Security level high
+	6min for SECURITY ERASE UNIT. 32min for ENHANCED SECURITY ERASE UNIT.
+"""
+
+    def run(argv):
+        return 0, text, ""
+
+    st = ata_security_state("/dev/sdc", run)
+    assert st["locked"] is True
+    assert st["security_enabled"] is True
+    assert st["frozen"] is False
+    assert st["enhanced_erase"] is True
+
+
 def test_nvme_health_unavailable_through_bridge():
     from drivestation.models import DriveInfo
 

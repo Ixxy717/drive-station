@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
@@ -10,17 +11,35 @@ from typing import Callable, Optional
 
 RunCmd = Callable[[list[str]], tuple[int, str, str]]
 
+# Dual-LUN USB bridges (Sabrent etc.) deadlock if two smartctl/hdparm hit
+# both bays at once — serialize those probes station-wide.
+_STORAGE_PROBE_LOCK = threading.Lock()
+_STORAGE_PROBE_TOOLS = frozenset({
+    "smartctl", "hdparm", "sg_raw", "nvme",
+})
+
 
 def default_run_cmd(argv: list[str]) -> tuple[int, str, str]:
-    try:
-        proc = subprocess.run(
-            argv, capture_output=True, text=True, timeout=60, check=False,
-        )
-        return proc.returncode, proc.stdout or "", proc.stderr or ""
-    except FileNotFoundError:
-        return 127, "", f"command not found: {argv[0]}"
-    except subprocess.TimeoutExpired:
-        return 124, "", "timeout"
+    tool = Path(argv[0]).name if argv else ""
+    timeout = 20 if tool in _STORAGE_PROBE_TOOLS else 60
+    lock = _STORAGE_PROBE_LOCK if tool in _STORAGE_PROBE_TOOLS else None
+
+    def _run() -> tuple[int, str, str]:
+        try:
+            proc = subprocess.run(
+                argv, capture_output=True, text=True, timeout=timeout,
+                check=False,
+            )
+            return proc.returncode, proc.stdout or "", proc.stderr or ""
+        except FileNotFoundError:
+            return 127, "", f"command not found: {argv[0]}"
+        except subprocess.TimeoutExpired:
+            return 124, "", "timeout"
+
+    if lock is None:
+        return _run()
+    with lock:
+        return _run()
 
 
 @dataclass

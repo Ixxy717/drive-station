@@ -177,9 +177,13 @@ class LinuxBackend(HardwareBackend):
                                              DriveType.SAS_SSD)):
             return [WipeMethod.ZERO_OVERWRITE]
 
-        # ASMedia SATA + RTL9220 SATA media: enhanced erase when available
+        # ASMedia SATA + RTL9220 SATA media: enhanced erase when available.
+        # Locked drives need a user password we don't have — overwrite only
+        # (and even that may I/O-error until unlocked).
         if cfg.bridge in ("asmedia_sata", "rtl9220"):
             state = ata_security_state(path, self._run)
+            if state.get("locked"):
+                return [WipeMethod.ZERO_OVERWRITE]
             if state["enhanced_erase"] and not state["frozen"]:
                 methods.append(WipeMethod.ATA_SECURE_ERASE_ENHANCED)
             if not state["frozen"]:

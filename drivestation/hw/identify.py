@@ -540,12 +540,16 @@ def read_health(
     if passed is not None:
         raw["smart_passed"] = bool(passed)
 
-    # Frozen security blocks fast secure erase (dd fallback still works).
-    # Surfaced as a board warning so the operator can replug the dock.
+    # Frozen / locked security changes wipe options (dd still works when
+    # unlocked enough to accept I/O; locked needs a password we don't have).
     if drive_type in (DriveType.SATA_SSD, DriveType.SATA_HDD):
         sec = ata_security_state(dev_path, run)
         if sec["frozen"]:
             raw["ata_frozen"] = True
+        if sec.get("locked"):
+            raw["ata_locked"] = True
+        if sec.get("security_enabled"):
+            raw["ata_security_enabled"] = True
 
     table = (health.get("ata_smart_attributes") or {}).get("table") or []
 
@@ -614,19 +618,31 @@ def ata_security_state(dev_path: str, run: RunCmd = default_run_cmd) -> dict[str
     """Parse hdparm -I security section."""
     code, out, err = run(["hdparm", "-I", dev_path])
     text = out + "\n" + err
-    frozen = bool(re.search(r"^\s*frozen\b", text, re.M | re.I)) \
-        and not bool(re.search(r"^\s*not\s+frozen\b", text, re.M | re.I))
-    # Prefer explicit "not frozen"
-    if re.search(r"not\s+frozen", text, re.I):
+    # Restrict to the Security: block so other "enabled"/"locked" lines
+    # (e.g. feature lists) don't false-positive.
+    sec = ""
+    m = re.search(r"Security:\s*\n([\s\S]*?)(?:\n[A-Z][\w ]*:|\Z)", text)
+    if m:
+        sec = m.group(1)
+    else:
+        sec = text
+
+    frozen = bool(re.search(r"^\s*frozen\b", sec, re.M | re.I)) \
+        and not bool(re.search(r"^\s*not\s+frozen\b", sec, re.M | re.I))
+    if re.search(r"not\s+frozen", sec, re.I):
         frozen = False
-    enhanced = bool(re.search(r"supported:\s*enhanced erase", text, re.I))
-    enabled = bool(re.search(r"^\s*enabled\b", text, re.M | re.I)) and \
-        "Security:" in text
-    # "enabled" under Security can mean security feature enabled — careful.
-    sec_enabled = bool(re.search(
-        r"Security:[\s\S]*?^\s*enabled", text, re.M | re.I))
+    locked = bool(re.search(r"^\s*locked\b", sec, re.M | re.I)) \
+        and not bool(re.search(r"^\s*not\s+locked\b", sec, re.M | re.I))
+    if re.search(r"not\s+locked", sec, re.I):
+        locked = False
+    enhanced = bool(re.search(r"supported:\s*enhanced erase", sec, re.I))
+    sec_enabled = bool(re.search(r"^\s*enabled\b", sec, re.M | re.I)) \
+        and not bool(re.search(r"^\s*not\s+enabled\b", sec, re.M | re.I))
+    if re.search(r"not\s+enabled", sec, re.I):
+        sec_enabled = False
     return {
         "frozen": frozen,
+        "locked": locked,
         "enhanced_erase": enhanced,
         "security_enabled": sec_enabled,
     }

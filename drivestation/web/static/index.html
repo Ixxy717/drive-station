@@ -275,9 +275,26 @@ const BANDS = [
 ];
 
 async function post(url, body) {
-  await fetch(url, {method: "POST",
-    headers: {"Content-Type": "application/json"},
-    body: body ? JSON.stringify(body) : null});
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: body ? JSON.stringify(body) : null,
+    });
+    if (!res.ok) {
+      let detail = res.statusText || String(res.status);
+      try {
+        const j = await res.json();
+        if (j && j.detail) detail = typeof j.detail === "string"
+          ? j.detail : JSON.stringify(j.detail);
+      } catch (_) { /* keep statusText */ }
+      console.error("POST failed", url, detail);
+      alert(`Action failed: ${detail}`);
+    }
+  } catch (e) {
+    console.error("POST error", url, e);
+    alert(`Action failed: ${e.message || e}`);
+  }
 }
 
 function row(k, v, cls = "") {

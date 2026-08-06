@@ -51,24 +51,25 @@ def _pick_identify(dev_path: str, bridge: str, run: RunCmd) -> dict:
         return data if _identity_present(data) else (
             _smartctl_json(dev_path, ["-i"], run) or {})
 
-    data = _smartctl_json(dev_path, ["-i", "-d", "sat"], run)
-    if _identity_present(data):
-        return data
-    # Plain -i without -d
-    data = _smartctl_json(dev_path, ["-i"], run) or {}
+    # SAT often answers first on USB NVMe bridges with a wrong/bridge serial.
+    # Always try the NVMe tunnel for those chips and prefer tunnel identity.
+    sat = _smartctl_json(dev_path, ["-i", "-d", "sat"], run)
+    plain = _smartctl_json(dev_path, ["-i"], run) or {}
+    data = sat if _identity_present(sat) else plain
     tunnel = NVME_TUNNEL_BY_BRIDGE.get(bridge)
     if tunnel:
         nvme = _smartctl_json(dev_path, ["-i", "-d", tunnel], run)
         if nvme and (nvme.get("model_name") or nvme.get("serial_number")
                      or nvme.get("nvme_smart_health_information_log")):
-            # Merge: prefer NVMe health later; keep ATA identity if present.
-            merged = dict(data)
+            merged = dict(data) if _identity_present(data) else {}
             merged["_nvme_tunnel"] = nvme
             for key in ("model_name", "serial_number", "user_capacity"):
-                if not merged.get(key) and nvme.get(key):
+                if nvme.get(key):
                     merged[key] = nvme[key]
+                elif data and data.get(key) and not merged.get(key):
+                    merged[key] = data[key]
             return merged
-    return data
+    return data if _identity_present(data) else plain
 
 
 def _is_sas(data: Optional[dict]) -> bool:

@@ -20,15 +20,12 @@ def test_queue_wipe_then_wipe_only_dock_sees_it(station, backend, joblog):
 
     backend.insert_drive("NVME-C1", make_nvme(serial="BIG1"))
     c1 = station.slots["NVME-C1"]
-    wait_for(lambda: c1.status == SlotStatus.READY, message="READY on C1")
+    # Queued serial on a wipe-only bay auto-starts — no confirm tap.
+    wait_for(lambda: c1.status == SlotStatus.PASSED, message="PASSED on C1")
     assert c1.wipe_only is True
-    assert c1.queued_from == "NVME-A1"
-    assert "Queued wipe from NVME-A1" in c1.message
-
-    station.confirm_wipe("NVME-C1")
-    wait_for(lambda: c1.status == SlotStatus.PASSED, message="PASSED")
     assert station.pending_wipes() == []
     assert joblog.by_serial("BIG1")[0]["result"] == "PASSED"
+    assert backend.wipe_calls == [("NVME-C1", "BIG1")]
 
 
 def test_large_nvme_wipe_auto_queues(station, backend):
@@ -52,6 +49,26 @@ def test_large_nvme_wipe_auto_queues(station, backend):
     assert backend.wipe_calls == []
     assert any(p["serial"] == "huge1" for p in station.pending_wipes())
     assert "queued" in b1.message.lower()
+
+
+def test_pending_queue_survives_restart(backend, joblog):
+    from drivestation.station import Station
+
+    joblog.set_pending_wipe("PERSIST1", "NVME-A1")
+    # Fresh Station must restore queue from SQLite (survives service restart).
+    station = Station(backend, joblog)
+    assert any(p["serial"] == "persist1" and p["from_slot"] == "NVME-A1"
+               for p in station.pending_wipes())
+
+
+def test_unqueued_wipe_only_still_needs_confirm(station, backend):
+    backend.insert_drive("NVME-C1", make_nvme(serial="MANUAL1"))
+    c1 = station.slots["NVME-C1"]
+    wait_for(lambda: c1.status == SlotStatus.READY, message="READY")
+    assert c1.awaiting_confirm is True
+    assert backend.wipe_calls == []
+    station.confirm_wipe("NVME-C1")
+    wait_for(lambda: c1.status == SlotStatus.PASSED, message="PASSED")
 
 
 def test_wipe_here_forces_local_on_large(station, backend):

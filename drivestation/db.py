@@ -29,6 +29,12 @@ CREATE TABLE IF NOT EXISTS jobs (
     usage_label TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_jobs_serial ON jobs(serial);
+
+CREATE TABLE IF NOT EXISTS pending_wipes (
+    serial TEXT PRIMARY KEY COLLATE NOCASE,
+    from_slot TEXT NOT NULL,
+    queued_at TEXT NOT NULL
+);
 """
 
 
@@ -124,3 +130,31 @@ class JobLog:
             rows = self._conn.execute(
                 "SELECT * FROM jobs ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
         return [dict(r) for r in rows]
+
+    # -- pending wipe queue (StarTech → SUITOK handoff) ----------------------
+
+    def set_pending_wipe(self, serial: str, from_slot: str) -> None:
+        key = serial.casefold()
+        with self._lock:
+            self._conn.execute(
+                """INSERT INTO pending_wipes (serial, from_slot, queued_at)
+                   VALUES (?,?,?)
+                   ON CONFLICT(serial) DO UPDATE SET
+                     from_slot=excluded.from_slot,
+                     queued_at=excluded.queued_at""",
+                (key, from_slot, _now()))
+            self._conn.commit()
+
+    def clear_pending_wipe(self, serial: str) -> None:
+        with self._lock:
+            self._conn.execute(
+                "DELETE FROM pending_wipes WHERE serial=? COLLATE NOCASE",
+                (serial.casefold(),))
+            self._conn.commit()
+
+    def load_pending_wipes(self) -> dict[str, str]:
+        """serial.casefold() → from_slot"""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT serial, from_slot FROM pending_wipes").fetchall()
+        return {str(r["serial"]).casefold(): str(r["from_slot"]) for r in rows}

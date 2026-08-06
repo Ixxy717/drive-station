@@ -42,6 +42,32 @@ def test_asm2362_identifies_nvme_via_sntasmedia():
     assert info.capacity_bytes == 500107862016
 
 
+def test_asm2362_prefers_tunnel_serial_over_sat():
+    """SAT often returns the dock serial; tunnel has the real NVMe serial."""
+    sat = {
+        "model_name": "1USB3-NVME-DOCK",
+        "serial_number": "61374000093B",
+        "user_capacity": {"bytes": 500107862016},
+    }
+    tunnel = {
+        "model_name": "Samsung SSD 970 EVO 500GB",
+        "serial_number": "S466NX0M123456",
+        "user_capacity": {"bytes": 500107862016},
+    }
+
+    def run(argv):
+        if "sntasmedia" in argv:
+            return 0, json.dumps(tunnel), ""
+        if "sat" in argv:
+            return 0, json.dumps(sat), ""
+        return 0, json.dumps({}), ""
+
+    info = read_identity("/dev/sdd", _asm(), run)
+    assert info is not None
+    assert info.serial == "S466NX0M123456"
+    assert "970" in info.model
+
+
 def test_asm2362_health_uses_sntasmedia_not_sntrealtek():
     log = {
         "nvme_smart_health_information_log": {

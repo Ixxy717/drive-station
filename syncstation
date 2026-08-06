@@ -157,7 +157,15 @@ cat > "$OUT/index.html" <<EOF
 </body></html>
 EOF
 
-# systemd LAN server — survives this script exiting
+# Kill ANYTHING on :2021 (old nohup / stale unit), then bind the new dump dir.
+systemctl stop drivestation-debug-lan.service 2>/dev/null || true
+pkill -f 'http.server 2021' 2>/dev/null || true
+fuser -k 2021/tcp 2>/dev/null || true
+sleep 0.5
+
+MARKER="READY-$(date +%Y%m%d-%H%M%S)"
+echo "$MARKER" > "$OUT/READY.txt"
+
 cat > /etc/systemd/system/drivestation-debug-lan.service <<EOF
 [Unit]
 Description=Drive Station debug dump LAN (:2021)
@@ -176,20 +184,38 @@ EOF
 systemctl daemon-reload
 systemctl enable drivestation-debug-lan.service >/dev/null 2>&1 || true
 systemctl restart drivestation-debug-lan.service
-sleep 0.5
 
+# Do not claim DONE until the NEW files are actually served.
 LOCAL_OK=NO
-curl -fsS -o /dev/null --connect-timeout 2 "http://127.0.0.1:2021/02-status.txt" && LOCAL_OK=YES
+for _ in $(seq 1 20); do
+    got=$(curl -fsS --connect-timeout 1 "http://127.0.0.1:2021/READY.txt" 2>/dev/null | tr -d '\r\n' || true)
+    if [[ "$got" == "$MARKER" ]]; then
+        LOCAL_OK=YES
+        break
+    fi
+    sleep 0.5
+done
 
 {
     echo "LAN=http://${IP}:2021/"
+    echo "READY_MARKER=$MARKER"
     echo "LOCAL_FETCH=$LOCAL_OK"
     echo "BOARD_CODE=$code"
-    echo "DONE — tell Cursor to read http://${IP}:2021/"
+    if [[ "$LOCAL_OK" == "YES" ]]; then
+        echo "DONE — tell Cursor to read http://${IP}:2021/"
+    else
+        echo "FAIL — LAN server did not serve new dump. status=$(systemctl is-active drivestation-debug-lan)"
+        systemctl --no-pager --full status drivestation-debug-lan 2>&1 | tail -n 30 || true
+    fi
 } | tee -a "$OUT/00-summary.txt"
 
 echo
 echo "========================================"
-echo " DONE. Do nothing else."
-echo " Tell Cursor: read http://${IP}:2021/"
+if [[ "$LOCAL_OK" == "YES" ]]; then
+    echo " DONE. Do nothing else."
+    echo " Tell Cursor: read http://${IP}:2021/"
+else
+    echo " FAILED to publish dump on :2021"
+    echo " Paste the lines above to Cursor."
+fi
 echo "========================================"

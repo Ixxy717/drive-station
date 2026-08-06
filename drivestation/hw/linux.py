@@ -5,6 +5,7 @@ Locked to Phase 0 characterization — see config/slots.toml.
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 from pathlib import Path
@@ -22,6 +23,11 @@ from .wipe_linux import (ata_enhanced_erase, verify_ata_erase, verify_zeros,
                          zero_overwrite)
 
 log = logging.getLogger("drivestation.linux")
+
+# USB bridges (RTL9210/ASM) often vanish for 1–3s mid-overwrite. Don't treat
+# that as a yank until the slot has been continuously missing this long.
+_REMOVE_DEBOUNCE_S = 5.0
+_PRESENT_RETRY_S = 3.0
 
 
 class LinuxBackend(HardwareBackend):
@@ -48,6 +54,8 @@ class LinuxBackend(HardwareBackend):
         # slot_id → BlockDevice currently considered present (size > 0)
         self._present: dict[str, BlockDevice] = {}
         self._dev_by_slot: dict[str, str] = {}  # slot → /dev/sdX
+        # slot_id → monotonic time when it first disappeared from a scan
+        self._gone_since: dict[str, float] = {}
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
 
@@ -95,32 +103,55 @@ class LinuxBackend(HardwareBackend):
 
     def _reconcile(self) -> None:
         found = scan_allowlisted(self._path_to_slot, self._run)
+        now = time.monotonic()
+        removals: list[str] = []
+        inserts: list[str] = []
         with self._lock:
             old_slots = set(self._present.keys())
             new_slots = set(found.keys())
 
+            # Back online — cancel any pending remove debounce.
+            for slot_id in new_slots:
+                self._gone_since.pop(slot_id, None)
+
             for slot_id in sorted(old_slots - new_slots):
+                since = self._gone_since.get(slot_id)
+                if since is None:
+                    self._gone_since[slot_id] = now
+                    log.info(
+                        "slot %s missing from scan — debounce %.0fs",
+                        slot_id, _REMOVE_DEBOUNCE_S,
+                    )
+                    continue
+                if now - since < _REMOVE_DEBOUNCE_S:
+                    continue
+                self._gone_since.pop(slot_id, None)
                 self._present.pop(slot_id, None)
                 self._dev_by_slot.pop(slot_id, None)
-                log.info("slot %s empty/removed", slot_id)
-                try:
-                    self._on_remove(slot_id)
-                except Exception:
-                    log.exception("on_remove(%s) failed", slot_id)
+                log.info("slot %s empty/removed (debounced)", slot_id)
+                removals.append(slot_id)
 
             for slot_id in sorted(new_slots - old_slots):
                 self._present[slot_id] = found[slot_id]
                 self._dev_by_slot[slot_id] = found[slot_id].path
                 log.info("slot %s present at %s", slot_id, found[slot_id].path)
-                try:
-                    self._on_insert(slot_id)
-                except Exception:
-                    log.exception("on_insert(%s) failed", slot_id)
+                inserts.append(slot_id)
 
-            # Same slot, device node renamed (rare) — update path only
+            # Same slot, device node renamed — update path only
             for slot_id in new_slots & old_slots:
                 self._present[slot_id] = found[slot_id]
                 self._dev_by_slot[slot_id] = found[slot_id].path
+
+        for slot_id in removals:
+            try:
+                self._on_remove(slot_id)
+            except Exception:
+                log.exception("on_remove(%s) failed", slot_id)
+        for slot_id in inserts:
+            try:
+                self._on_insert(slot_id)
+            except Exception:
+                log.exception("on_insert(%s) failed", slot_id)
 
     def _require_dev(self, slot_id: str) -> str:
         with self._lock:
@@ -138,22 +169,36 @@ class LinuxBackend(HardwareBackend):
         with self._lock:
             self._present[slot_id] = cur
             self._dev_by_slot[slot_id] = cur.path
+            self._gone_since.pop(slot_id, None)
         return cur.path
 
     def _slot_cfg(self, slot_id: str) -> SlotConfig:
         return self.slots[slot_id]
 
     def _still_present(self, slot_id: str, dev_path: str) -> bool:
-        found = scan_allowlisted(self._path_to_slot, self._run)
-        cur = found.get(slot_id)
-        if cur is None or cur.size_bytes <= 0:
-            return False
-        with self._lock:
-            self._present[slot_id] = cur
-            self._dev_by_slot[slot_id] = cur.path
-        # Path may change after a USB re-enumerate; slot match is enough.
-        # Active dd still targets the original path until it exits.
-        return True
+        """True unless the slot stays gone for _PRESENT_RETRY_S.
+
+        A single missed udev/lsblk sample must not kill an active wipe.
+        """
+        deadline = time.monotonic() + _PRESENT_RETRY_S
+        while True:
+            found = scan_allowlisted(self._path_to_slot, self._run)
+            cur = found.get(slot_id)
+            if cur is not None and cur.size_bytes > 0:
+                with self._lock:
+                    self._present[slot_id] = cur
+                    self._dev_by_slot[slot_id] = cur.path
+                    self._gone_since.pop(slot_id, None)
+                return True
+            # Scan can miss ID_PATH while dd still holds the original node.
+            try:
+                if dev_path and os.path.exists(dev_path):
+                    return True
+            except OSError:
+                pass
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(0.35)
 
     def read_identity(self, slot_id: str) -> Optional[DriveInfo]:
         path = self._require_dev(slot_id)

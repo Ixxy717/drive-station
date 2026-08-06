@@ -106,6 +106,14 @@ class Station:
             if slot is None:
                 log.warning("Ignoring device on non-allowlisted slot %r", slot_id)
                 return
+            # USB bridges re-enumerate mid-overwrite. Resetting the slot here
+            # aborts a live wipe with a fake "disconnected" failure.
+            if slot.status in (SlotStatus.WIPING, SlotStatus.VERIFYING):
+                log.info(
+                    "Ignoring insert on %s during %s (USB re-enumerate)",
+                    slot_id, slot.status.value,
+                )
+                return
             gen = self._check_gen.get(slot_id, 0) + 1
             self._check_gen[slot_id] = gen
             slot.status = SlotStatus.DETECTED
@@ -130,12 +138,14 @@ class Station:
             if slot is None:
                 return
             if slot.status in (SlotStatus.WIPING, SlotStatus.VERIFYING):
-                # The wipe thread also detects this and logs the job; the
-                # state is set here too so the UI reacts instantly.
-                slot.status = SlotStatus.FAILED
-                slot.message = "Drive disconnected during wipe"
-                slot.awaiting_confirm = False
-                slot.queued_from = None
+                # Do not flip the tile to FAILED on a hotplug blip — the wipe
+                # thread decides after present-check retries. Real yanks still
+                # fail there once the device stays gone.
+                log.warning(
+                    "Ignoring remove on %s during %s (likely USB blip)",
+                    slot_id, slot.status.value,
+                )
+                return
             elif slot.status == SlotStatus.FAILED and "disconnected" in slot.message.lower():
                 pass  # keep the failure visible until the next insertion
             else:
@@ -507,9 +517,29 @@ class Station:
                 slot.status = SlotStatus.PASSED
                 slot.progress = 1.0
                 slot.wipe_eta_s = 0.0
+                # Make success unmistakable on the board.
+                method_label = (method.value if method else "WIPE").replace(
+                    "_", " ")
                 slot.message = (
-                    f"Wiped and verified — listing /d/{bound.serial}"
+                    f"WIPED & VERIFIED EMPTY ({method_label}) — "
+                    f"safe to remove · /d/{bound.serial}"
                 )
+                slot.usage = UsageSnapshot(
+                    capacity_bytes=bound.capacity_bytes,
+                    used_bytes=0,
+                    has_partitions=False,
+                    label=f"Empty / {bound.capacity_label}",
+                    detail="Post-wipe verification confirmed no residual data",
+                )
+                slot.prior_wipe = {
+                    "result": "PASSED",
+                    "finished_at": None,
+                    "method": method.value if method else None,
+                    "slot": slot_id,
+                    "still_clean": True,
+                    "had_passed": True,
+                    "last_result": "PASSED",
+                }
 
         except DriveDisconnected:
             self._fail(slot, "Drive disconnected during wipe",

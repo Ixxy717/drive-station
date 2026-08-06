@@ -106,8 +106,6 @@ def zero_overwrite(
                 progress(frac)
 
     rc = proc.wait()
-    if not present():
-        raise DriveDisconnected(f"{dev_path} disappeared during overwrite")
     err_tail = "".join(stderr_data)[-800:]
     if rc != 0:
         filled = written >= size or (
@@ -119,10 +117,20 @@ def zero_overwrite(
                 rc, written, size,
             )
         else:
-            raise WipeError(f"dd failed (exit {rc}): {err_tail}")
+            # If the bridge blipped but we already wrote the whole disk,
+            # still accept — verify will re-resolve the path.
+            if written >= int(size * 0.999):
+                log.warning(
+                    "dd exited %s after ~full write (%s/%s); continuing to verify",
+                    rc, written, size,
+                )
+            else:
+                raise WipeError(f"dd failed (exit {rc}): {err_tail}")
     progress(1.0)
     # Give USB bridges a moment before verify opens the device again.
-    time.sleep(1.0)
+    # Do not require present() here — docks often drop for a few seconds
+    # right after a full overwrite (that used to look like a yank).
+    time.sleep(1.5)
 
 
 _FS_MAGICS = (

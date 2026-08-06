@@ -73,11 +73,17 @@ def test_reconcile_insert_remove_and_ignore_rogue(tmp_path):
     assert ("in", "SATA-1") in events
     assert backend.read_identity("SATA-1").serial == "SER123"
 
-    # Ghost (0B) → remove
+    # Ghost (0B) — first miss only starts debounce, does not yank yet
     table.devices = [{
         "name": "sdc", "size": 0,
         "id_path": slots["SATA-1"].id_path,
     }]
+    backend._reconcile()
+    assert ("out", "SATA-1") not in events
+    assert "SATA-1" in backend._gone_since
+
+    # Still missing after debounce window → remove
+    backend._gone_since["SATA-1"] = 0.0  # epoch → definitely expired
     backend._reconcile()
     assert ("out", "SATA-1") in events
 

@@ -385,6 +385,7 @@ function tileHTML(s, busyByGroup) {
       body += row(label, s.wipe_method.replaceAll("_", " "), "mono");
     }
     if (s.status === "PASSED") {
+      body += row("Result", "WIPED · VERIFIED EMPTY", "h-GOOD");
       body += row("Card", `<a class="listing" href="/d/${encodeURIComponent(d.serial)}">/d/${d.serial}</a>`);
     }
     body += `</div>`;
@@ -450,7 +451,8 @@ function tileHTML(s, busyByGroup) {
 
   let foot = "";
   if (!ask) {
-    foot = `<div class="foot ${s.status}"><span class="word">${s.status}</span>` +
+    const word = s.status === "PASSED" ? "WIPED" : s.status;
+    foot = `<div class="foot ${s.status}"><span class="word">${word}</span>` +
       (s.message ? `<div class="note">${s.message}</div>` : "") + `</div>`;
   }
 

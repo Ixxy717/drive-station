@@ -24,6 +24,21 @@ def test_yank_mid_wipe(station, backend, joblog):
     assert slot.status == SlotStatus.FAILED
 
 
+def test_usb_blip_insert_ignored_during_wipe(station, backend, joblog):
+    """Re-enumerate mid-wipe must not reset the slot / fake a disconnect."""
+    backend.insert_drive("SATA-1", make_hdd(serial="BLIP"))
+    slot = station.slots["SATA-1"]
+    wait_for(lambda: slot.status == SlotStatus.READY, message="READY")
+    station.confirm_wipe("SATA-1")
+    wait_for(lambda: slot.status == SlotStatus.WIPING, message="WIPING")
+    # Hotplug "insert" while still wiping (USB bridge blip).
+    station._on_insert("SATA-1")
+    assert slot.status == SlotStatus.WIPING
+    wait_for(lambda: slot.status == SlotStatus.PASSED, message="PASSED")
+    assert "WIPED" in slot.message
+    assert joblog.by_serial("BLIP")[0]["result"] == "PASSED"
+
+
 def test_wipe_command_rejected(station, backend, joblog):
     backend.insert_drive("SATA-1",
                          make_sata_ssd(serial="REJ", faults=SimFaults(wipe_rejected=True)))

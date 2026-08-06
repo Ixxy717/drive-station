@@ -16,15 +16,43 @@ if [[ $EUID -ne 0 ]]; then
     exit 1
 fi
 
+echo "Refreshing apt indexes (avoids stale trixie-security 404s)..."
+apt-get update
+
 echo "Installing cage + chromium..."
-apt-get install -y cage chromium
+if ! apt-get install -y cage chromium; then
+    echo "chromium package failed — trying firefox-esr as the kiosk browser..."
+    apt-get install -y cage firefox-esr
+    BROWSER=firefox
+else
+    BROWSER=chromium
+fi
 
 if ! id kiosk &>/dev/null; then
     useradd -m -s /usr/sbin/nologin kiosk
 fi
 usermod -aG video,input,render kiosk 2>/dev/null || true
 
-cat > /usr/local/bin/drivestation-kiosk <<"EOF"
+# Pick whichever browser we actually installed.
+if [[ "${BROWSER:-chromium}" == "firefox" ]] || ! command -v chromium >/dev/null; then
+    cat > /usr/local/bin/drivestation-kiosk <<"EOF"
+#!/usr/bin/env bash
+GRADE_URL="http://127.0.0.1:8330/"
+WIPE_URL="http://127.0.0.1:8330/wipe"
+for _ in $(seq 1 60); do
+    curl -fsS -o /dev/null "$GRADE_URL" && break
+    sleep 2
+done
+OUTPUTS=$(wlr-randr 2>/dev/null | awk '/^[A-Z]/{print $1}' | wc -l || echo 1)
+if [[ "${OUTPUTS:-1}" -ge 2 ]]; then
+    firefox-esr --kiosk "$WIPE_URL" &
+    exec firefox-esr --kiosk "$GRADE_URL"
+else
+    exec firefox-esr --kiosk "$GRADE_URL"
+fi
+EOF
+else
+    cat > /usr/local/bin/drivestation-kiosk <<"EOF"
 #!/usr/bin/env bash
 # Wait for the API, then fullscreen Chromium. Alt+F4 closes the window.
 GRADE_URL="http://127.0.0.1:8330/"
@@ -45,8 +73,6 @@ CHROME=(chromium
     --ozone-platform=wayland
 )
 
-# Primary: grade board. If a second output exists, also open wipe board
-# shifted onto it (best-effort — cage/wayland positioning varies).
 OUTPUTS=$(wlr-randr 2>/dev/null | awk '/^[A-Z]/{print $1}' | wc -l || echo 1)
 if [[ "${OUTPUTS:-1}" -ge 2 ]]; then
     "${CHROME[@]}" --window-position=1920,0 "$WIPE_URL" &
@@ -55,6 +81,7 @@ else
     exec "${CHROME[@]}" "$GRADE_URL"
 fi
 EOF
+fi
 chmod +x /usr/local/bin/drivestation-kiosk
 
 cat > /etc/systemd/system/drivestation-kiosk.service <<"EOF"

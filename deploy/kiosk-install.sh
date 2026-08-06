@@ -97,11 +97,20 @@ Type=simple
 User=kiosk
 PAMName=login
 TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
 StandardInput=tty
 StandardOutput=journal
+StandardError=journal
 UtmpIdentifier=tty1
-# -s: allow Escape / Alt+F4 style exit from the compositor client
+# Hand the DRM seat to tty1 before cage starts (a login on tty2 steals seat0).
+ExecStartPre=/usr/bin/chvt 1
+ExecStartPre=/bin/sleep 1
 ExecStart=/usr/bin/cage -s -- /usr/local/bin/drivestation-kiosk
+KillMode=control-group
+KillSignal=SIGKILL
+TimeoutStopSec=5
 # Clean Alt+F4 exit → stay closed. Crash → relaunch.
 Restart=on-failure
 RestartSec=3
@@ -110,9 +119,23 @@ RestartSec=3
 WantedBy=graphical.target
 EOF
 
+usermod -aG video,input,render kiosk 2>/dev/null || usermod -aG video,input kiosk
+loginctl enable-linger kiosk 2>/dev/null || true
+
 systemctl daemon-reload
 systemctl disable getty@tty1.service 2>/dev/null || true
+systemctl stop getty@tty1.service 2>/dev/null || true
+chvt 1 2>/dev/null || true
 systemctl enable --now drivestation-kiosk.service
+# If another tty holds seat0, force-activate the kiosk wayland session.
+sleep 2
+for s in $(loginctl list-sessions --no-legend | awk '{print $1}'); do
+    name=$(loginctl show-session "$s" -p Name --value 2>/dev/null || true)
+    typ=$(loginctl show-session "$s" -p Type --value 2>/dev/null || true)
+    if [[ "$name" == "kiosk" && "$typ" == "wayland" ]]; then
+        loginctl activate "$s" 2>/dev/null || true
+    fi
+done
 systemctl set-default graphical.target
 
 bash "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/install-commands.sh"

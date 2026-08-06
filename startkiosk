@@ -92,11 +92,63 @@ if [[ ! -f /etc/systemd/system/drivestation-kiosk.service ]]; then
     exit 1
 fi
 
+# A text login on tty2/tty3 holds seat0 → cage DRM timeout → black screen.
 systemctl disable getty@tty1 2>/dev/null || true
 systemctl stop getty@tty1 2>/dev/null || true
+systemctl kill -s KILL drivestation-kiosk.service 2>/dev/null || true
+pkill -9 cage 2>/dev/null || true
+chvt 1 2>/dev/null || true
+
+# Keep unit hardened (fast kill + chvt before start).
+cat > /etc/systemd/system/drivestation-kiosk.service <<"EOF"
+[Unit]
+Description=Drive Station kiosk screen (cage + chromium)
+After=drivestation.service systemd-user-sessions.service
+Wants=drivestation.service
+Conflicts=getty@tty1.service
+
+[Service]
+Type=simple
+User=kiosk
+PAMName=login
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
+StandardInput=tty
+StandardOutput=journal
+StandardError=journal
+UtmpIdentifier=tty1
+ExecStartPre=/usr/bin/chvt 1
+ExecStartPre=/bin/sleep 1
+ExecStart=/usr/bin/cage -s -- /usr/local/bin/drivestation-kiosk
+KillMode=control-group
+KillSignal=SIGKILL
+TimeoutStopSec=5
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=graphical.target
+EOF
+usermod -aG video,input,render kiosk 2>/dev/null || usermod -aG video,input kiosk
+systemctl daemon-reload
 systemctl enable drivestation-kiosk
 systemctl restart drivestation-kiosk
+sleep 2
+for s in $(loginctl list-sessions --no-legend | awk '{print $1}'); do
+    name=$(loginctl show-session "$s" -p Name --value 2>/dev/null || true)
+    typ=$(loginctl show-session "$s" -p Type --value 2>/dev/null || true)
+    if [[ "$name" == "kiosk" && "$typ" == "wayland" ]]; then
+        loginctl activate "$s" 2>/dev/null || true
+    fi
+done
 
-echo "Kiosk starting."
+if pgrep -u kiosk -x chromium >/dev/null || pgrep -u kiosk -x firefox-esr >/dev/null; then
+    echo "Kiosk is up (browser running)."
+else
+    echo "Kiosk service started — if the screen stays black, your login on tty2 is"
+    echo "holding the GPU seat. Press Ctrl+Alt+F1, or run: sudo chvt 1"
+fi
 echo "Black again?  sudo debugkiosk"
 echo "Just off?     sudo fixkiosk"

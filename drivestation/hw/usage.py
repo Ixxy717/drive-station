@@ -113,14 +113,18 @@ def _mount_fsused(part_path: str, fstype: str, run: RunCmd) -> Optional[int]:
             pass
 
 
-def _has_payload_signatures(dev_path: str) -> bool:
-    """True if MBR/GPT/common FS magic appears in the first few MB."""
+def _has_payload_signatures(dev_path: str) -> Optional[bool]:
+    """True/False if MBR/GPT/FS magic seen; None if media is unreadable (EIO)."""
     try:
         fd = os.open(dev_path, os.O_RDONLY)
     except OSError:
-        return False
+        return None
     try:
+        # ATA-locked / failing media often returns EIO on raw reads —
+        # never abort identify for that.
         head = os.read(fd, 2 * 1024 * 1024)
+    except OSError:
+        return None
     finally:
         os.close(fd)
     if not head:
@@ -200,7 +204,14 @@ def read_usage(
             "Partition table present; no mounted filesystem usage available",
         )
 
-    if _has_payload_signatures(dev_path):
+    sig = _has_payload_signatures(dev_path)
+    if sig is None:
+        return UsageInfo(
+            cap, None, False,
+            f"Unreadable / {_fmt_bytes(cap)}",
+            "Raw read failed — drive may be ATA-locked or media error",
+        )
+    if sig:
         return UsageInfo(
             cap, None, False,
             f"Data present / {_fmt_bytes(cap)}",

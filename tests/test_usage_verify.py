@@ -76,3 +76,21 @@ def test_usage_snapshot_dict():
     d = u.to_dict()
     assert d["used_bytes"] == 40
     assert d["label"].startswith("40GB")
+
+
+def test_read_usage_eio_on_signature_scan(monkeypatch):
+    """ATA-locked drives often EIO on raw read — must not raise."""
+    def run(argv):
+        if argv[:2] == ["lsblk", "-dbno"]:
+            return 0, "251000193024", ""
+        if argv[0] == "lsblk" and "-Jb" in argv:
+            return 0, '{"blockdevices":[{"name":"sdb","type":"disk","size":251000193024,"children":[]}]}', ""
+        return 1, "", ""
+
+    def boom(*_args, **_kwargs):
+        raise OSError(5, "Input/output error")
+
+    monkeypatch.setattr("drivestation.hw.usage.os.open", boom)
+    info = read_usage("/dev/sdb", capacity_bytes=251_000_193_024, run=run)
+    assert "Unreadable" in info.label
+    assert info.used_bytes is None

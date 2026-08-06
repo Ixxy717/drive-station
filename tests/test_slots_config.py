@@ -9,12 +9,13 @@ from drivestation.models import SLOT_LAYOUT
 def test_default_slots_toml_loads_and_matches_layout():
     slots = load_slots_config()
     assert set(slots) == {s for s, _ in SLOT_LAYOUT}
-    # Full remap: every path is a placeholder until characterize on the mini PC.
-    assert all(s.id_path.startswith("UNMAPPED-") for s in slots.values())
-    # Primary docks first in naming
+    # StarTech NVMe toasters mapped; everything else still UNMAPPED.
+    assert slots["NVME-A1"].id_path.endswith("usb-0:4.4.4.1:1.0-scsi-0:0:0:0")
+    assert slots["NVME-B1"].id_path.endswith("usb-0:4.4.4.2:1.0-scsi-0:0:0:0")
     assert slots["NVME-A1"].bridge == "asm2362"
     assert slots["NVME-B1"].bridge == "asm2362"
     assert slots["NVME-A1"].hot_swap is True
+    assert slots["SATA-1"].id_path.startswith("UNMAPPED-")
     assert slots["SATA-1"].bridge == "asmedia_sata"
     assert slots["SATA-1"].hot_swap is True
     assert slots["SATA-1"].shared_power_group == "STARTECH 4BAY"

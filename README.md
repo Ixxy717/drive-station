@@ -84,10 +84,18 @@ sudo systemctl restart drivestation   # after a git pull
 sudo bash deploy/kiosk-install.sh
 ```
 
-The mini PC's attached monitor boots straight into the fullscreen board
-(cage + Chromium, no desktop environment required). The LAN URLs keep
-working from phones/other PCs at the same time. To get a console back:
-`Ctrl+Alt+F2` for tty2, or `sudo systemctl stop drivestation-kiosk`.
+The mini PC's attached monitor boots into a **fullscreen** board (cage +
+Chromium). **Alt+F4** closes it (stays closed until
+`sudo systemctl start drivestation-kiosk` or reboot). A second monitor, if
+present, opens the **WIPE ONLY** board (`/wipe`).
+
+| URL | What |
+|-----|------|
+| `/` | Grade board — StarTech NVMe A/B, SATA, M2 (no wipe-only docks) |
+| `/wipe` | Wipe-only SUITOK docks + queued serials (2nd monitor) |
+
+Workflow: grade on StarTech → **QUEUE WIPE** / auto-queue if ≥1TB → move stick
+to a WIPE ONLY bay → it shows `FROM NVME-A1` and asks to wipe.
 
 Optional:
 

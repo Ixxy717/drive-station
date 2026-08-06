@@ -163,10 +163,13 @@ def _serial(prefix: str) -> str:
 
 def make_nvme(percentage_used: int = 6, media_errors: int = 0,
               critical_warning: int = 0, serial: Optional[str] = None,
-              faults: Optional[SimFaults] = None) -> SimDrive:
+              faults: Optional[SimFaults] = None,
+              capacity_bytes: int = 512_000_000_000) -> SimDrive:
+    # Default under 1TB so grading-dock WIPE runs locally; large-NVMe queue
+    # tests pass capacity_bytes >= 1_000_000_000_000 explicitly.
     return SimDrive(
         info=DriveInfo("Samsung", "PM9A1", serial or _serial("SIMNV"),
-                       1_000_000_000_000, DriveType.NVME),
+                       capacity_bytes, DriveType.NVME),
         health_raw={"percentage_used": percentage_used,
                     "media_errors": media_errors,
                     "critical_warning": critical_warning},

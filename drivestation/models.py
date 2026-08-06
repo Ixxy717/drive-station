@@ -98,6 +98,9 @@ class SlotState:
     message: str = ""
     awaiting_confirm: bool = False
     wipe_method: Optional[WipeMethod] = None
+    wipe_only: bool = False
+    # Serial was queued on a grading dock (e.g. StarTech) for wipe here.
+    queued_from: Optional[str] = None
 
     def to_dict(self) -> dict:
         return {
@@ -109,6 +112,7 @@ class SlotState:
                 "model": self.drive.model,
                 "serial": self.drive.serial,
                 "capacity": self.drive.capacity_label,
+                "capacity_bytes": self.drive.capacity_bytes,
                 "drive_type": self.drive.drive_type.value,
             },
             "health": None if self.health is None else {
@@ -121,7 +125,20 @@ class SlotState:
             "message": self.message,
             "awaiting_confirm": self.awaiting_confirm,
             "wipe_method": self.wipe_method.value if self.wipe_method else None,
+            "wipe_only": self.wipe_only,
+            "queued_from": self.queued_from,
         }
+
+
+# SUITOK dual docks — grade elsewhere (StarTech); these are wipe bays for
+# large NVMe (and any serial queued from a grading dock).
+WIPE_ONLY_SLOTS: frozenset[str] = frozenset({
+    "NVME-C1", "NVME-C2", "NVME-D1", "NVME-D2",
+})
+
+# NVMe at or above this size should be queued to a wipe-only dock instead of
+# zero-overwriting on the StarTech grading toaster.
+LARGE_NVME_QUEUE_BYTES = 1_000_000_000_000  # 1 TB marketing
 
 
 # Permanent physical slot identities. On the real station these map to USB
@@ -139,13 +156,13 @@ SLOT_LAYOUT: list[tuple[str, str]] = [
     ("SATA-5", "SATA DOCK"),
     ("SATA-6", "SATA DOCK"),
     # StarTech single-bay NVMe toasters — primary NVMe (real SMART / wear %).
-    ("NVME-A1", "NVME DOCK A"),
-    ("NVME-B1", "NVME DOCK B"),
-    # SUITOK dual NVMe docks — secondary (identify OK; wear often UNKNOWN).
-    ("NVME-C1", "NVME DOCK C"),
-    ("NVME-C2", "NVME DOCK C"),
-    ("NVME-D1", "NVME DOCK D"),
-    ("NVME-D2", "NVME DOCK D"),
+    ("NVME-A1", "NVME GRADE A"),
+    ("NVME-B1", "NVME GRADE B"),
+    # SUITOK duals — wipe-only (large NVMe / queued from StarTech).
+    ("NVME-C1", "WIPE ONLY"),
+    ("NVME-C2", "WIPE ONLY"),
+    ("NVME-D1", "WIPE ONLY"),
+    ("NVME-D2", "WIPE ONLY"),
     # Dual M.2 dock — only bay 1 is reliable alone.
     ("M2-1", "M.2 DOCK"),
 ]

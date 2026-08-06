@@ -59,7 +59,8 @@ async def lifespan(app: FastAPI):
     print()
     print("Drive Station is on the LAN — open from this PC or another:")
     for u in _lan_urls(port):
-        print(f"  Board  : {u}")
+        print(f"  Grade  : {u}              (main board — StarTech etc.)")
+        print(f"  Wipe   : {u}wipe          (WIPE ONLY docks / 2nd monitor)")
         print(f"  Logs   : {u}logs")
         print(f"  Drive  : {u}d/<SERIAL>   (eBay listing card)")
         print(f"  Files  : {u}files/")
@@ -92,6 +93,12 @@ def index() -> FileResponse:
     return FileResponse(STATIC / "index.html")
 
 
+@app.get("/wipe")
+def wipe_board() -> FileResponse:
+    """Second-monitor board: WIPE ONLY docks (SUITOK) + queued serials."""
+    return FileResponse(STATIC / "index.html")
+
+
 @app.get("/logs")
 def logs_page() -> FileResponse:
     return FileResponse(STATIC / "logs.html")
@@ -118,7 +125,11 @@ def cert_page(serial: str) -> FileResponse:
 
 @app.get("/api/state")
 def state() -> dict:
-    return {"sim_mode": MODE != "real", "slots": station.snapshot()}
+    return {
+        "sim_mode": MODE != "real",
+        "slots": station.snapshot(),
+        "pending_wipes": station.pending_wipes(),
+    }
 
 
 @app.get("/api/config")
@@ -157,6 +168,26 @@ def record_qr(serial: str, request: Request) -> Response:
 def wipe(slot_id: str) -> dict:
     try:
         station.confirm_wipe(slot_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    return {"ok": True}
+
+
+@app.post("/api/slots/{slot_id}/wipe-here")
+def wipe_here(slot_id: str) -> dict:
+    """Force local wipe (even for ≥1TB NVMe on a grading dock)."""
+    try:
+        station.confirm_wipe_here(slot_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    return {"ok": True}
+
+
+@app.post("/api/slots/{slot_id}/queue")
+def queue_wipe(slot_id: str) -> dict:
+    """Queue serial for a WIPE ONLY dock; nothing destroyed on this bay."""
+    try:
+        station.queue_wipe(slot_id)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     return {"ok": True}

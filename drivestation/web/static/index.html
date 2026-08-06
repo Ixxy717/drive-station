@@ -102,7 +102,23 @@
     color: #141414; background: var(--work);
     padding: 3px 7px; animation: blink 1.2s step-end infinite;
   }
+  .tilebar .badge {
+    font-size: 10px; font-weight: 800; letter-spacing: .6px;
+    color: #fff; background: #5a3d1a; padding: 3px 7px;
+  }
+  .tilebar .badge.queue {
+    background: var(--active);
+  }
   .ghost .tilebar .guard { color: #141414; }
+  .group.wipe-only h2 span:first-child { color: #e8c07a; }
+  #queuebar {
+    display: none; margin: 0 22px 0; padding: 10px 14px;
+    background: #2a3340; border: 1px solid var(--hair-dk);
+    color: #cdd0d5; font-size: 12px;
+  }
+  #queuebar b { color: #fff; letter-spacing: 1px; }
+  .yes.secondary { background: var(--active); }
+  .ask .buttons { flex-wrap: wrap; }
 
   .data { padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
   .row { display: grid; grid-template-columns: 76px 1fr; align-items: baseline; }
@@ -204,7 +220,8 @@
     <span>
       <span class="title">DRIVE STATION</span>
       <span class="nav">
-        <a href="/">BOARD</a>
+        <a href="/">GRADE</a>
+        <a href="/wipe">WIPE ONLY</a>
         <a href="/logs">LOGS</a>
         <a href="/files/">FILES</a>
       </span>
@@ -214,6 +231,7 @@
       <span id="clock" class="num"></span>
     </div>
   </div>
+  <div id="queuebar"></div>
   <div id="groups"></div>
   <div id="simpanel">
     <h2>Simulation control — dev build only</h2>
@@ -225,8 +243,15 @@ const PRESETS = ["healthy_nvme","worn_nvme","failing_nvme","healthy_ssd",
   "smart_fail_ssd","healthy_hdd","warning_hdd","failing_hdd",
   "yank_mid_wipe","wipe_rejected","verify_fail","wont_identify"];
 
-const TYPE_LABEL = { NVME: "NVMe", SATA_SSD: "SATA SSD", SATA_HDD: "SATA HDD" };
+const TYPE_LABEL = {
+  NVME: "NVMe", SATA_SSD: "SATA SSD", SATA_HDD: "SATA HDD",
+  SAS_HDD: "SAS HDD", SAS_SSD: "SAS SSD",
+};
 const STATUS_ORDER = ["READY","CHECKING","WIPING","VERIFYING","PASSED","FAILED","ERROR","EMPTY"];
+const TB = 1e12;
+// /wipe → wipe-only docks; / → grading docks (hide WIPE ONLY group)
+const BOARD = location.pathname.replace(/\/+$/, "") === "/wipe" ? "wipe" : "grade";
+document.title = BOARD === "wipe" ? "Drive Station — Wipe Only" : "Drive Station";
 
 async function post(url, body) {
   await fetch(url, {method: "POST",
@@ -252,10 +277,15 @@ function guardChip(s, busySlots) {
 function tileHTML(s, busyByGroup) {
   const d = s.drive, h = s.health;
   const guard = guardChip(s, busyByGroup[s.group] ?? []);
+  const largeNvme = d && d.drive_type === "NVME" && (d.capacity_bytes || 0) >= TB;
+  const badges = [];
+  if (s.wipe_only) badges.push(`<span class="badge">WIPE ONLY</span>`);
+  if (s.queued_from) badges.push(`<span class="badge queue">FROM ${s.queued_from}</span>`);
 
   if (s.status === "EMPTY") {
     return `<div class="tile ghost">
-        <div class="tilebar"><span class="id">${s.slot_id}</span>${guard}</div>
+        <div class="tilebar"><span class="id">${s.slot_id}</span>
+          ${badges.join("")}${guard}</div>
         <div class="nodevice">NO DEVICE</div>
         <div class="foot"><span class="word">EMPTY</span></div>
       </div>`;
@@ -273,8 +303,6 @@ function tileHTML(s, busyByGroup) {
     if (h) {
       const pct = h.percent === null ? "" : `${h.percent}% `;
       body += row("Health", `${pct}${h.verdict}`, `h-${h.verdict}`);
-      // Flags are hidden while a wipe runs: the progress block needs the
-      // space, and the warnings were already shown at the READY decision.
       const busy = s.status === "WIPING" || s.status === "VERIFYING";
       if (h.warnings.length && !busy) body += row("Flags", h.warnings.join(" · "), "flags");
     }
@@ -303,14 +331,31 @@ function tileHTML(s, busyByGroup) {
 
   let ask = "";
   if (s.status === "READY" && s.awaiting_confirm) {
-    const dataQ = s.usage && s.usage.label
-      ? `Wipe this drive? (${s.usage.label})`
-      : "Secure wipe this drive?";
+    let dataQ;
+    if (s.queued_from && s.wipe_only) {
+      dataQ = `Queued from ${s.queued_from} — wipe now?`;
+    } else if (largeNvme && !s.wipe_only) {
+      dataQ = "≥1TB NVMe — send to WIPE ONLY dock?";
+    } else if (s.usage && s.usage.label) {
+      dataQ = `Wipe this drive? (${s.usage.label})`;
+    } else {
+      dataQ = "Secure wipe this drive?";
+    }
+    const buttons = [];
+    if (s.wipe_only) {
+      buttons.push(`<button class="act yes" onclick="post('/api/slots/${s.slot_id}/wipe')">WIPE</button>`);
+    } else if (largeNvme) {
+      buttons.push(`<button class="act yes" onclick="post('/api/slots/${s.slot_id}/wipe')">QUEUE WIPE</button>`);
+      buttons.push(`<button class="act yes secondary" onclick="post('/api/slots/${s.slot_id}/wipe-here')">WIPE HERE</button>`);
+    } else {
+      buttons.push(`<button class="act yes" onclick="post('/api/slots/${s.slot_id}/wipe')">WIPE</button>`);
+      if (d && d.drive_type === "NVME") {
+        buttons.push(`<button class="act yes secondary" onclick="post('/api/slots/${s.slot_id}/queue')">SEND TO WIPE DOCK</button>`);
+      }
+    }
+    buttons.push(`<button class="act no" onclick="post('/api/slots/${s.slot_id}/decline')">SKIP</button>`);
     ask = `<div class="ask"><div class="q">${dataQ}</div>
-      <div class="buttons">
-        <button class="act yes" onclick="post('/api/slots/${s.slot_id}/wipe')">WIPE</button>
-        <button class="act no" onclick="post('/api/slots/${s.slot_id}/decline')">SKIP</button>
-      </div></div>`;
+      <div class="buttons">${buttons.join("")}</div></div>`;
   }
 
   let foot = "";
@@ -319,9 +364,14 @@ function tileHTML(s, busyByGroup) {
       (s.message ? `<div class="note">${s.message}</div>` : "") + `</div>`;
   }
 
+  const right = [
+    ...badges,
+    guard,
+    (!s.wipe_only && d
+      ? `<span class="iface">${TYPE_LABEL[d.drive_type] ?? ""}</span>` : ""),
+  ].filter(Boolean).join("");
   return `<div class="tile solid">
-      <div class="tilebar"><span class="id">${s.slot_id}</span>
-        ${guard || (d ? `<span class="iface">${TYPE_LABEL[d.drive_type] ?? ""}</span>` : "")}</div>
+      <div class="tilebar"><span class="id">${s.slot_id}</span>${right}</div>
       ${body}${ask}${foot}
     </div>`;
 }
@@ -361,20 +411,33 @@ async function refresh() {
   try {
     const res = await fetch("/api/state");
     const data = await res.json();
+    const visible = data.slots.filter(s =>
+      BOARD === "wipe" ? s.wipe_only : !s.wipe_only);
     const groups = {};
     const busyByGroup = {};
-    for (const s of data.slots) {
+    for (const s of visible) {
       (groups[s.group] ??= []).push(s);
       if (s.status === "WIPING" || s.status === "VERIFYING") {
         (busyByGroup[s.group] ??= []).push(s.slot_id);
       }
     }
     document.getElementById("groups").innerHTML =
-      Object.entries(groups).map(([name, slots]) =>
-        `<div class="group"><h2><span>${name}</span><span class="cnt">${slots.length} SLOTS</span></h2>
-         ${slots.map(s => tileHTML(s, busyByGroup)).join("")}</div>`
-      ).join("");
-    renderCounts(data.slots);
+      Object.entries(groups).map(([name, slots]) => {
+        const wipeCls = name === "WIPE ONLY" ? " wipe-only" : "";
+        return `<div class="group${wipeCls}"><h2><span>${name}</span><span class="cnt">${slots.length} SLOTS</span></h2>
+         ${slots.map(s => tileHTML(s, busyByGroup)).join("")}</div>`;
+      }).join("");
+    renderCounts(visible);
+    const q = data.pending_wipes || [];
+    const qb = document.getElementById("queuebar");
+    if (q.length) {
+      qb.style.display = "block";
+      qb.innerHTML = `<b>QUEUED FOR WIPE DOCK</b> — ` +
+        q.map(p => `${p.serial} <span style="color:#83878e">(from ${p.from_slot})</span>`).join(" · ");
+    } else {
+      qb.style.display = "none";
+      qb.innerHTML = "";
+    }
     if (data.sim_mode && !simBuilt) buildSim(data.slots);
   } catch (e) { /* server restarting; keep polling */ }
 }

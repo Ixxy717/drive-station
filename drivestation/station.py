@@ -8,7 +8,8 @@ from .db import JobLog
 from .health.policy import evaluate_health
 from .hw.base import (DriveDisconnected, HardwareBackend, HardwareError,
                       VerifyError, WipeError)
-from .models import (SLOT_LAYOUT, DriveInfo, HealthVerdict, SlotState,
+from .models import (LARGE_NVME_QUEUE_BYTES, SLOT_LAYOUT, WIPE_ONLY_SLOTS,
+                     DriveInfo, DriveType, HealthVerdict, SlotState,
                      SlotStatus, UsageSnapshot, WipeMethod)
 from .wipe.methods import choose_method
 
@@ -25,6 +26,9 @@ class Station:
       * The serial is re-read from hardware immediately before the destructive
         command; any mismatch or ambiguity aborts to ERROR without wiping.
       * A drive vanishing mid-job fails the job loudly with the slot name.
+
+    Wipe-only docks (SUITOK): large NVMe and any serial queued from a grading
+    dock (StarTech) show up ready to wipe with the queue source labeled.
     """
 
     def __init__(self, backend: HardwareBackend, joblog: JobLog,
@@ -34,9 +38,13 @@ class Station:
         self.batch = batch
         self._lock = threading.RLock()
         self.slots: dict[str, SlotState] = {
-            slot_id: SlotState(slot_id=slot_id, group=group)
+            slot_id: SlotState(
+                slot_id=slot_id, group=group,
+                wipe_only=slot_id in WIPE_ONLY_SLOTS)
             for slot_id, group in SLOT_LAYOUT
         }
+        # serial (casefold) → grading slot that queued it
+        self._pending_wipes: dict[str, str] = {}
         interrupted = self.joblog.mark_interrupted_jobs()
         if interrupted:
             log.warning("Marked %d interrupted job(s) as FAILED after restart",
@@ -59,6 +67,7 @@ class Station:
             slot.message = ""
             slot.awaiting_confirm = False
             slot.wipe_method = None
+            slot.queued_from = None
         threading.Thread(target=self._check, args=(slot_id,),
                          name=f"check-{slot_id}", daemon=True).start()
 
@@ -73,10 +82,13 @@ class Station:
                 slot.status = SlotStatus.FAILED
                 slot.message = "Drive disconnected during wipe"
                 slot.awaiting_confirm = False
+                slot.queued_from = None
             elif slot.status == SlotStatus.FAILED and "disconnected" in slot.message.lower():
                 pass  # keep the failure visible until the next insertion
             else:
                 # Normal removal (finished or declined drive pulled out).
+                # Pending wipe queue is kept by serial so a move to a wipe
+                # dock still matches after yanking from the grading bay.
                 slot.status = SlotStatus.EMPTY
                 slot.drive = None
                 slot.health = None
@@ -85,6 +97,7 @@ class Station:
                 slot.message = ""
                 slot.awaiting_confirm = False
                 slot.wipe_method = None
+                slot.queued_from = None
 
     # -- health check --------------------------------------------------------
 
@@ -130,11 +143,21 @@ class Station:
                 slot.wipe_method = planned
                 slot.status = SlotStatus.READY
                 slot.awaiting_confirm = True
+                queued_from = self._pending_wipes.get(info.serial.casefold())
+                slot.queued_from = queued_from
+                msgs: list[str] = []
+                if queued_from and slot.wipe_only:
+                    msgs.append(f"Queued wipe from {queued_from}")
+                elif (not slot.wipe_only
+                      and info.drive_type == DriveType.NVME
+                      and info.capacity_bytes >= LARGE_NVME_QUEUE_BYTES):
+                    msgs.append("≥1TB — queue to WIPE ONLY dock (or wipe here)")
                 if health.verdict in (HealthVerdict.SCRAP, HealthVerdict.FAIL):
-                    slot.message = health.warnings[0] if health.warnings \
-                        else "SCRAP — do not resell"
-                else:
-                    slot.message = ""
+                    msgs.append(health.warnings[0] if health.warnings
+                                else "SCRAP — do not resell")
+                elif health.verdict == HealthVerdict.UNKNOWN and slot.wipe_only:
+                    msgs.append("Wipe only — health not graded on this dock")
+                slot.message = " · ".join(msgs)
         except DriveDisconnected:
             pass  # removal event resets the slot
         except HardwareError as exc:
@@ -145,8 +168,33 @@ class Station:
     # -- operator actions ----------------------------------------------------
 
     def confirm_wipe(self, slot_id: str) -> None:
-        """Operator pressed YES. All safety gates run before anything
-        destructive happens."""
+        """Operator pressed YES. Large NVMe on a grading dock is queued to a
+        wipe-only bay instead of starting dd here — unless force_local."""
+        self._start_or_queue_wipe(slot_id, force_local=False)
+
+    def confirm_wipe_here(self, slot_id: str) -> None:
+        """Force wipe on this bay even if the drive is ≥1TB NVMe."""
+        self._start_or_queue_wipe(slot_id, force_local=True)
+
+    def queue_wipe(self, slot_id: str) -> None:
+        """Mark this serial for wipe on a WIPE ONLY dock; do not destroy here."""
+        with self._lock:
+            slot = self.slots.get(slot_id)
+            if slot is None:
+                raise ValueError(f"Unknown slot {slot_id!r}")
+            if slot.wipe_only:
+                raise ValueError(f"{slot_id} is already a wipe-only bay")
+            if slot.status != SlotStatus.READY or not slot.awaiting_confirm:
+                raise ValueError(f"{slot_id} is not awaiting confirmation")
+            if slot.drive is None:
+                raise ValueError(f"{slot_id} has no bound drive identity")
+            serial = slot.drive.serial
+            self._pending_wipes[serial.casefold()] = slot_id
+            slot.awaiting_confirm = False
+            slot.message = f"Queued for WIPE ONLY dock — remove and insert there"
+            log.info("Queued wipe for serial %s from %s", serial, slot_id)
+
+    def _start_or_queue_wipe(self, slot_id: str, force_local: bool) -> None:
         with self._lock:
             slot = self.slots.get(slot_id)
             if slot is None:
@@ -156,17 +204,42 @@ class Station:
             if slot.drive is None:
                 raise ValueError(f"{slot_id} has no bound drive identity")
             bound = slot.drive
+            auto_queue = (
+                not force_local
+                and not slot.wipe_only
+                and bound.drive_type == DriveType.NVME
+                and bound.capacity_bytes >= LARGE_NVME_QUEUE_BYTES
+            )
+            if auto_queue:
+                self._pending_wipes[bound.serial.casefold()] = slot_id
+                slot.awaiting_confirm = False
+                slot.message = (
+                    "≥1TB queued for WIPE ONLY dock — remove and insert there"
+                )
+                log.info("Auto-queued large NVMe %s from %s",
+                         bound.serial, slot_id)
+                return
             slot.awaiting_confirm = False
         threading.Thread(target=self._wipe_job, args=(slot_id, bound),
                          name=f"wipe-{slot_id}", daemon=True).start()
 
     def decline_wipe(self, slot_id: str) -> None:
-        """Operator pressed NO. Nothing happens to the drive."""
+        """Operator pressed NO. Clears a pending queue entry for this serial."""
         with self._lock:
             slot = self.slots[slot_id]
             if slot.status == SlotStatus.READY:
+                if slot.drive is not None:
+                    self._pending_wipes.pop(slot.drive.serial.casefold(), None)
                 slot.awaiting_confirm = False
+                slot.queued_from = None
                 slot.message = "Not wiped — remove drive"
+
+    def pending_wipes(self) -> list[dict]:
+        with self._lock:
+            return [
+                {"serial": serial, "from_slot": from_slot}
+                for serial, from_slot in self._pending_wipes.items()
+            ]
 
     # -- wipe engine ---------------------------------------------------------
 
@@ -261,6 +334,8 @@ class Station:
             # record is durably committed).
             self.joblog.finish_job(job_id, "PASSED")
             with self._lock:
+                self._pending_wipes.pop(bound.serial.casefold(), None)
+                slot.queued_from = None
                 slot.status = SlotStatus.PASSED
                 slot.progress = 1.0
                 slot.message = (

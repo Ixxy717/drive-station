@@ -46,17 +46,20 @@ hot_swap = false
 shared_power_group = "SATA DOCK"
 
 # --- StarTech NVMe toasters (primary — ASM2362 / sntasmedia) ---------------
+# Characterized 2026-08-06: 1USB3-NVME-DOCK (14b0:020d). Wear via -d sntasmedia.
+# Pulling the stick leaves a 0B ghost until the next insert (size>0 still works).
 [slots.NVME-A1]
-id_path = "UNMAPPED-NVME-A1"
+id_path = "pci-0000:00:14.0-usb-0:4.4.4.1:1.0-scsi-0:0:0:0"
 bridge = "asm2362"
 hot_swap = true
 
 [slots.NVME-B1]
-id_path = "UNMAPPED-NVME-B1"
+id_path = "pci-0000:00:14.0-usb-0:4.4.4.2:1.0-scsi-0:0:0:0"
 bridge = "asm2362"
 hot_swap = true
 
-# --- SUITOK dual NVMe docks (secondary — RTL9210) --------------------------
+# --- SUITOK dual NVMe docks (WIPE ONLY — RTL9210, often no wear %) ---------
+# Grade on StarTech A/B; queue ≥1TB (or SEND TO WIPE DOCK), then wipe here.
 [slots.NVME-C1]
 id_path = "UNMAPPED-NVME-C1"
 bridge = "rtl9210"

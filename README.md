@@ -2,9 +2,9 @@
 
 Drive testing and secure-wiping station for an electronics recycling / ITAD bench.
 
-One mini PC + USB docks (2× SATA bays, 4× NVMe M.2 slots, 1× M.2 NVMe/SATA slot)
-= a 7-slot appliance. Operators insert drives, look at the screen, click YES/NO,
-and remove finished drives. Everything else is automatic.
+One mini PC + USB docks (StarTech 4-bay + older 2-bay SATA + 2× StarTech NVMe
+toasters + 2× SUITOK dual NVMe + 1× M.2) = a 13-slot appliance. Operators insert
+drives, look at the screen, click YES/NO, and remove finished drives.
 
 ## Roadmap
 
@@ -153,32 +153,60 @@ After every wipe it **verifies**:
 - **ATA secure erase** — drive still identifies, and partition/FS signatures
   must be gone (full zero-fill is not required; some SSDs return non-zero).
 
-### Wipe methods (Phase 0 locked)
+### Wipe methods
 
 | Dock | Method |
 |------|--------|
-| SATA-1 / SATA-2 (ASMedia) | ATA enhanced secure erase when not frozen; else zero overwrite |
-| NVME-A/B (RTL9210) | Zero overwrite only (NVMe admin blocked by bridge) |
+| SATA-1…4 (StarTech 4-bay) | ATA enhanced secure erase when not frozen; else zero overwrite |
+| SATA-5/6 (old 2-bay) | Same; dock is **not** hot-swap — power-cycle to swap |
+| NVME-A1 / NVME-B1 (StarTech) | Zero overwrite; SMART wear via `-d sntasmedia` |
+| NVME-C/D (SUITOK RTL9210) | Zero overwrite; wear often UNKNOWN |
 | M2-1 SATA media (RTL9220) | ATA enhanced when available; else overwrite |
 | M2-1 NVMe media | Zero overwrite only |
-| ASM2362 NVMe dock (incoming) | Zero overwrite; SMART wear via `-d sntasmedia` |
-| SAS USB enclosure (incoming) | Zero overwrite; health via `-d scsi` log pages |
 
-### Incoming docks (pre-wired, not yet characterized)
+### Full remap (current layout)
 
-When the new hardware arrives, run `sudo tools/dock_characterize.sh`, then add
-slots to `SLOT_LAYOUT` (`drivestation/models.py`) and `config/slots.toml` with:
+Every `id_path` in `config/slots.toml` is `UNMAPPED-*` until you characterize
+on the mini PC. **Plug each dock into a permanent USB port and leave it.**
 
-- `bridge = "asm2362"` — StarTech / ACASIS ASM2362 NVMe dock. Identify +
-  NVMe SMART (wear %) go through `smartctl -d sntasmedia`; grading works.
-- `bridge = "sas_usb"` — Maiwo (or similar) SAS/SATA enclosure. SAS drives
-  identify and grade via `smartctl -d scsi` (grown defects, uncorrected error
-  counters, endurance for SAS SSDs); SATA drives in the same bays use `sat`.
-  If the enclosure blocks SCSI log pages, drives show health UNKNOWN — wipe
-  still works.
+| Slots | Hardware | Bridge |
+|-------|----------|--------|
+| `NVME-A1`, `NVME-B1` | StarTech NVMe toasters (primary — real wear %) | `asm2362` |
+| `SATA-1`…`SATA-4` | StarTech SDOCK4U313 4-bay | `asmedia_sata` |
+| `SATA-5`, `SATA-6` | Older 2-bay SATA dock | `asmedia_sata` |
+| `NVME-C1/C2`, `NVME-D1/D2` | SUITOK duals (wipe OK; health often UNKNOWN) | `rtl9210` |
+| `M2-1` | Dual M.2 dock (bay 1) | `rtl9220` |
 
-SATA dock is **not** hot-swap: power-cycle the port after inserting/removing.
-NVMe docks and M2-1 are hot-swap.
+```
+git pull
+sudo systemctl restart drivestation
+
+# StarTech NVMe A then B first (sacrificial sticks)
+sudo tools/dock_characterize.sh
+#   → do NVME-A1 and NVME-B1; skip others with "s" for now
+
+# StarTech 4-bay: four different-size drives; leave old 2-bay empty
+sudo tools/dock_characterize.sh --quad
+
+# Old 2-bay → SATA-5/6; leave StarTech 4-bay empty
+sudo tools/dock_characterize.sh --dual
+
+# SUITOKs + M2 when you're ready
+sudo tools/dock_characterize.sh   # NVME-C*, NVME-D*, M2-1
+```
+
+Paste the printed `[slots.*]` / `ID_PATH=` lines into `config/slots.toml`, then
+`sudo systemctl restart drivestation`. Confirm StarTech NVMe wear:
+
+```
+sudo smartctl -a -d sntasmedia /dev/sdX
+```
+
+If `sntasmedia` fails but `sntrealtek` works, set that slot to
+`bridge = "rtl9210"` instead of `asm2362`.
+
+The old 2-bay (`SATA-5/6`) is **not** hot-swap: power-cycle that port after
+inserting/removing. StarTech 4-bay, NVMe docks, and M2-1 are hot-swap.
 
 ### Phase 0 tools (already run for this hardware)
 

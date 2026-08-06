@@ -1,40 +1,84 @@
-# Frozen Phase 0 slot map. Do not move USB cables without updating these paths.
-# Re-run: sudo tools/dock_characterize.sh and --dual, then edit this file.
-# Override path with DRIVESTATION_SLOTS=/path/to/slots.toml
+# Full remap in progress — every path is a placeholder until characterize
+# writes the real USB ID_PATH for the port each dock is plugged into.
+#
+# Do not move cables after mapping. Re-run:
+#   sudo tools/dock_characterize.sh --quad   # StarTech 4-bay → SATA-1..4
+#   sudo tools/dock_characterize.sh --dual   # old 2-bay → SATA-5/6
+#   sudo tools/dock_characterize.sh          # NVME-A1/B1, SUITOKs, M2-1
+# Override with DRIVESTATION_SLOTS=/path/to/slots.toml
 
+# --- StarTech SDOCK4U313 (primary SATA) ------------------------------------
 [slots.SATA-1]
-id_path = "pci-0000:00:14.0-usb-0:4.4.4.4:1.0-scsi-0:0:0:0"
+id_path = "UNMAPPED-SATA-1"
 bridge = "asmedia_sata"
-hot_swap = false
-shared_power_group = "SATA DOCK"
+hot_swap = true
+shared_power_group = "STARTECH 4BAY"
 
 [slots.SATA-2]
-id_path = "pci-0000:00:14.0-usb-0:4.4.4.4:1.0-scsi-0:0:0:1"
+id_path = "UNMAPPED-SATA-2"
+bridge = "asmedia_sata"
+hot_swap = true
+shared_power_group = "STARTECH 4BAY"
+
+[slots.SATA-3]
+id_path = "UNMAPPED-SATA-3"
+bridge = "asmedia_sata"
+hot_swap = true
+shared_power_group = "STARTECH 4BAY"
+
+[slots.SATA-4]
+id_path = "UNMAPPED-SATA-4"
+bridge = "asmedia_sata"
+hot_swap = true
+shared_power_group = "STARTECH 4BAY"
+
+# --- Older 2-bay SATA dock -------------------------------------------------
+[slots.SATA-5]
+id_path = "UNMAPPED-SATA-5"
 bridge = "asmedia_sata"
 hot_swap = false
 shared_power_group = "SATA DOCK"
 
-[slots.NVME-A1]
-id_path = "pci-0000:00:14.0-usb-0:4.4.3.1:1.0-scsi-0:0:0:0"
-bridge = "rtl9210"
-hot_swap = true
+[slots.SATA-6]
+id_path = "UNMAPPED-SATA-6"
+bridge = "asmedia_sata"
+hot_swap = false
+shared_power_group = "SATA DOCK"
 
-[slots.NVME-A2]
-id_path = "pci-0000:00:14.0-usb-0:4.4.3.2:1.0-scsi-0:0:0:0"
-bridge = "rtl9210"
+# --- StarTech NVMe toasters (primary — ASM2362 / sntasmedia) ---------------
+[slots.NVME-A1]
+id_path = "UNMAPPED-NVME-A1"
+bridge = "asm2362"
 hot_swap = true
 
 [slots.NVME-B1]
-id_path = "pci-0000:00:14.0-usb-0:4.4.2.1:1.0-scsi-0:0:0:0"
+id_path = "UNMAPPED-NVME-B1"
+bridge = "asm2362"
+hot_swap = true
+
+# --- SUITOK dual NVMe docks (secondary — RTL9210) --------------------------
+[slots.NVME-C1]
+id_path = "UNMAPPED-NVME-C1"
 bridge = "rtl9210"
 hot_swap = true
 
-[slots.NVME-B2]
-id_path = "pci-0000:00:14.0-usb-0:4.4.2.2:1.0-scsi-0:0:0:0"
+[slots.NVME-C2]
+id_path = "UNMAPPED-NVME-C2"
 bridge = "rtl9210"
 hot_swap = true
 
+[slots.NVME-D1]
+id_path = "UNMAPPED-NVME-D1"
+bridge = "rtl9210"
+hot_swap = true
+
+[slots.NVME-D2]
+id_path = "UNMAPPED-NVME-D2"
+bridge = "rtl9210"
+hot_swap = true
+
+# --- M.2 dual dock (bay 1 only) --------------------------------------------
 [slots.M2-1]
-id_path = "pci-0000:00:14.0-usb-0:8.4.4.3:1.0-scsi-0:0:0:0"
+id_path = "UNMAPPED-M2-1"
 bridge = "rtl9220"
 hot_swap = true

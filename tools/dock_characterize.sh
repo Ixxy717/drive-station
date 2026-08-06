@@ -14,25 +14,30 @@
 #   sudo tools/dock_characterize.sh --dual          # map dual-bay SATA LUNs
 #       (insert two different-size drives at once — e.g. 256GB in bay 1,
 #        512GB in bay 2 — and the script records which USB/LUN is which)
+#   sudo tools/dock_characterize.sh --quad          # map StarTech 4-bay
+#       (four different-size drives, one per bay → SATA-1..SATA-4)
+#   sudo tools/dock_characterize.sh --dual          # map old 2-bay → SATA-5/6
 #
 # Output: reports/dock-characterization-<date>/  (one file per tested slot)
-#         or reports/dual-sata-map-<date>/ for --dual
+#         or reports/dual-sata-map-<date>/ / quad-sata-map-<date>/
 
 set -u
 
 DESTRUCTIVE=0
 DUAL=0
+QUAD=0
 for arg in "$@"; do
     case "$arg" in
         --destructive) DESTRUCTIVE=1 ;;
         --dual) DUAL=1 ;;
+        --quad) QUAD=1 ;;
         -h|--help)
-            sed -n '1,20p' "$0"
+            sed -n '1,22p' "$0"
             exit 0
             ;;
         *)
             echo "Unknown argument: $arg" >&2
-            echo "Usage: $0 [--destructive] | --dual" >&2
+            echo "Usage: $0 [--destructive] | --dual | --quad" >&2
             exit 1
             ;;
     esac
@@ -52,7 +57,9 @@ done
 
 # Always write next to this repo, regardless of the caller's cwd (sudo/cd traps).
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-if [[ $DUAL -eq 1 ]]; then
+if [[ $QUAD -eq 1 ]]; then
+    OUTDIR="$ROOT/reports/quad-sata-map-$(date +%Y%m%d-%H%M%S)"
+elif [[ $DUAL -eq 1 ]]; then
     OUTDIR="$ROOT/reports/dual-sata-map-$(date +%Y%m%d-%H%M%S)"
 else
     OUTDIR="$ROOT/reports/dock-characterization-$(date +%Y%m%d-%H%M%S)"
@@ -60,7 +67,12 @@ fi
 mkdir -p "$OUTDIR"
 echo "Reports -> $OUTDIR"
 
-SLOTS=(SATA-1 SATA-2 NVME-A1 NVME-A2 NVME-B1 NVME-B2 M2-1)
+# Primary docks first (StarTech), then secondary SUITOKs / old SATA / M2.
+SLOTS=(NVME-A1 NVME-B1
+       SATA-1 SATA-2 SATA-3 SATA-4
+       SATA-5 SATA-6
+       NVME-C1 NVME-C2 NVME-D1 NVME-D2
+       M2-1)
 
 # Disk names only (used for removal checks / summaries).
 list_disks() { lsblk -dno NAME,TYPE | awk '$2=="disk"{print $1}' | sort; }
@@ -165,6 +177,28 @@ characterize() {  # characterize <slot> <dev> <report>
     # The physical port path — must be stable for this slot across reboots:
     udevadm info --query=property --name="$devpath" \
         | grep -E '^(ID_PATH|ID_VENDOR_ID|ID_MODEL_ID|ID_SERIAL)=' >>"$report"
+    local id_path
+    id_path=$(udevadm info --query=property --name="$devpath" \
+        | awk -F= '$1=="ID_PATH"{print $2; exit}')
+    {
+        echo
+        echo "===== slots.toml snippet for $slot ====="
+        echo "[slots.${slot}]"
+        echo "id_path = \"$id_path\""
+        case "$slot" in
+            NVME-A1|NVME-B1) echo 'bridge = "asm2362"'; echo "hot_swap = true" ;;
+            NVME-C*|NVME-D*) echo 'bridge = "rtl9210"'; echo "hot_swap = true" ;;
+            M2-1) echo 'bridge = "rtl9220"'; echo "hot_swap = true" ;;
+            SATA-[1-4])
+                echo 'bridge = "asmedia_sata"'; echo "hot_swap = true"
+                echo 'shared_power_group = "STARTECH 4BAY"' ;;
+            SATA-[56])
+                echo 'bridge = "asmedia_sata"'; echo "hot_swap = false"
+                echo 'shared_power_group = "SATA DOCK"' ;;
+            *) echo 'bridge = "asmedia_sata"'; echo "hot_swap = true" ;;
+        esac
+        echo "========================================"
+    } | tee -a "$report"
 
     section "USB bridge (VID/PID -> identifies the bridge chipset)" "$report"
     run_logged "$report" lsusb
@@ -236,29 +270,31 @@ characterize() {  # characterize <slot> <dev> <report>
     fi
 }
 
-# --dual: map physical SATA bays → USB path / LUN using two different sizes.
+# --dual: map old 2-bay SATA → SATA-5 / SATA-6 using two different sizes.
 dual_sata_map() {
     local report="$OUTDIR/DUAL-SATA-MAP.txt"
     local bay1_gb=256 bay2_gb=512
+    local slot1=SATA-5 slot2=SATA-6
     local name size_b size_gb path lun model serial vendor
     local -a names=()
 
     {
-        echo "Dual-bay SATA LUN mapping"
+        echo "Dual-bay SATA LUN mapping (old 2-bay → $slot1 / $slot2)"
         echo "Timestamp: $(date -Iseconds)"
         echo
-        echo "Operator places two DIFFERENT-capacity drives in the Sabrent dock"
+        echo "Operator places two DIFFERENT-capacity drives in the old 2-bay dock"
         echo "at the same time so each physical bay gets a unique USB/LUN identity."
+        echo "Leave the StarTech 4-bay empty/unpowered during this run."
         echo
     } >"$report"
 
     echo
-    echo "=== Dual-bay SATA mapping (--dual) ==="
-    echo "Goal: learn which USB path/LUN is physical SATA-1 vs SATA-2."
+    echo "=== Dual-bay SATA mapping (--dual) → $slot1 / $slot2 ==="
+    echo "Goal: learn which USB path/LUN is physical bay 1 vs bay 2 on the OLD dock."
     echo
     echo "Plan (sizes are nominal — close enough is fine):"
-    echo "  Physical SATA-1 (bay 1)  ←  ~${bay1_gb}GB drive"
-    echo "  Physical SATA-2 (bay 2)  ←  ~${bay2_gb}GB drive"
+    echo "  Physical bay 1 ($slot1)  ←  ~${bay1_gb}GB drive"
+    echo "  Physical bay 2 ($slot2)  ←  ~${bay2_gb}GB drive"
     echo
     read -rp "Change sizes? [enter=keep 256/512, or type e.g. 500 1000]: " sizes
     if [[ -n "$sizes" ]]; then
@@ -267,15 +303,16 @@ dual_sata_map() {
         bay1_gb="${1:-$bay1_gb}"
         bay2_gb="${2:-$bay2_gb}"
     fi
-    echo "Using: SATA-1≈${bay1_gb}GB, SATA-2≈${bay2_gb}GB" | tee -a "$report"
+    echo "Using: $slot1≈${bay1_gb}GB, $slot2≈${bay2_gb}GB" | tee -a "$report"
     echo
 
     echo "Current disks:"
     lsblk -dno NAME,SIZE,MODEL,SERIAL,TRAN | sed 's/^/  /'
     echo
-    echo "1) Put the ~${bay1_gb}GB drive in physical bay 1 (SATA-1)."
-    echo "2) Put the ~${bay2_gb}GB drive in physical bay 2 (SATA-2)."
-    echo "3) Power-cycle the SATA dock port so BOTH enumerate."
+    echo "1) Put the ~${bay1_gb}GB drive in physical bay 1 ($slot1)."
+    echo "2) Put the ~${bay2_gb}GB drive in physical bay 2 ($slot2)."
+    echo "3) Power-cycle the old SATA dock port so BOTH enumerate."
+    echo "4) Leave the StarTech 4-bay empty so sizes don't collide."
     read -rp "Press enter when both drives are up: " _
 
     echo | tee -a "$report"
@@ -365,18 +402,18 @@ dual_sata_map() {
     echo
     if [[ -z "$dev1" || -z "$dev2" || "$dev1" == "$dev2" ]]; then
         echo "!! Could not auto-match both sizes. Tell me manually which /dev is which."
-        read -rp "  /dev name in physical SATA-1 (~${bay1_gb}GB): " dev1
-        read -rp "  /dev name in physical SATA-2 (~${bay2_gb}GB): " dev2
+        read -rp "  /dev name in physical $slot1 (~${bay1_gb}GB): " dev1
+        read -rp "  /dev name in physical $slot2 (~${bay2_gb}GB): " dev2
         dev1=${dev1#/dev/}
         dev2=${dev2#/dev/}
     else
         echo "Auto-match by size:"
-        echo "  Physical SATA-1 (~${bay1_gb}GB) → /dev/$dev1 ($(lsblk -dno SIZE,MODEL,SERIAL /dev/$dev1))"
-        echo "  Physical SATA-2 (~${bay2_gb}GB) → /dev/$dev2 ($(lsblk -dno SIZE,MODEL,SERIAL /dev/$dev2))"
+        echo "  Physical $slot1 (~${bay1_gb}GB) → /dev/$dev1 ($(lsblk -dno SIZE,MODEL,SERIAL /dev/$dev1))"
+        echo "  Physical $slot2 (~${bay2_gb}GB) → /dev/$dev2 ($(lsblk -dno SIZE,MODEL,SERIAL /dev/$dev2))"
         read -rp "Does that match what you plugged in? [enter=yes / n=fix manually]: " ok
         if [[ "$ok" == "n" || "$ok" == "N" ]]; then
-            read -rp "  /dev name in physical SATA-1: " dev1
-            read -rp "  /dev name in physical SATA-2: " dev2
+            read -rp "  /dev name in physical $slot1: " dev1
+            read -rp "  /dev name in physical $slot2: " dev2
             dev1=${dev1#/dev/}
             dev2=${dev2#/dev/}
         fi
@@ -390,16 +427,32 @@ dual_sata_map() {
     {
         echo
         echo "===== CONFIRMED MAPPING ====="
-        echo "SATA-1_DEV=/dev/$dev1"
-        echo "SATA-1_ID_PATH=$path1"
-        echo "SATA-1_LUN=${lun1:-unknown}"
-        echo "SATA-1_SERIAL=$(lsblk -dno SERIAL /dev/$dev1)"
-        echo "SATA-1_SIZE=$(lsblk -dno SIZE /dev/$dev1)"
-        echo "SATA-2_DEV=/dev/$dev2"
-        echo "SATA-2_ID_PATH=$path2"
-        echo "SATA-2_LUN=${lun2:-unknown}"
-        echo "SATA-2_SERIAL=$(lsblk -dno SERIAL /dev/$dev2)"
-        echo "SATA-2_SIZE=$(lsblk -dno SIZE /dev/$dev2)"
+        echo "# Paste into config/slots.toml (replace UNMAPPED-$slot1 / UNMAPPED-$slot2):"
+        echo
+        echo "${slot1}_DEV=/dev/$dev1"
+        echo "${slot1}_ID_PATH=$path1"
+        echo "${slot1}_LUN=${lun1:-unknown}"
+        echo "${slot1}_SERIAL=$(lsblk -dno SERIAL /dev/$dev1)"
+        echo "${slot1}_SIZE=$(lsblk -dno SIZE /dev/$dev1)"
+        echo
+        echo "[slots.${slot1}]"
+        echo "id_path = \"$path1\""
+        echo "bridge = \"asmedia_sata\""
+        echo "hot_swap = false"
+        echo "shared_power_group = \"SATA DOCK\""
+        echo
+        echo "${slot2}_DEV=/dev/$dev2"
+        echo "${slot2}_ID_PATH=$path2"
+        echo "${slot2}_LUN=${lun2:-unknown}"
+        echo "${slot2}_SERIAL=$(lsblk -dno SERIAL /dev/$dev2)"
+        echo "${slot2}_SIZE=$(lsblk -dno SIZE /dev/$dev2)"
+        echo
+        echo "[slots.${slot2}]"
+        echo "id_path = \"$path2\""
+        echo "bridge = \"asmedia_sata\""
+        echo "hot_swap = false"
+        echo "shared_power_group = \"SATA DOCK\""
+        echo
         if [[ "$path1" == "$path2" ]]; then
             echo "NOTE=ID_PATH identical — bay distinction is by LUN only"
         else
@@ -411,6 +464,208 @@ dual_sata_map() {
     echo "Saved → $report"
     echo "Pull it with: bash tools/serve_reports.sh"
 }
+
+# --quad: map StarTech 4-bay physical bays → USB ID_PATH using four sizes.
+quad_sata_map() {
+    local report="$OUTDIR/QUAD-SATA-MAP.txt"
+    # Default nominal GB per physical bay left→right (or front→back) on SDOCK4U313.
+    local -a bay_slots=(SATA-1 SATA-2 SATA-3 SATA-4)
+    local -a bay_gbs=(256 512 1000 2000)
+    local name size_b size_gb path lun model serial vendor
+    local -a names=()
+    local i slot gb
+
+    {
+        echo "StarTech 4-bay SATA mapping (SDOCK4U313 → SATA-1..SATA-4)"
+        echo "Timestamp: $(date -Iseconds)"
+        echo
+        echo "Insert FOUR different-capacity drives, one per bay, then power on."
+        echo "Leave the old 2-bay SATA dock empty/unpowered during this run."
+        echo "The script matches size → physical bay → ID_PATH for slots.toml."
+        echo
+    } >"$report"
+
+    echo
+    echo "=== StarTech 4-bay mapping (--quad) ==="
+    echo "Default sizes (left-to-right / bay 1→4 as you face the dock):"
+    for i in 0 1 2 3; do
+        echo "  ${bay_slots[$i]}  ←  ~${bay_gbs[$i]}GB"
+    done
+    echo
+    read -rp "Change sizes? [enter=keep, or type four numbers e.g. 256 512 1000 2000]: " sizes
+    if [[ -n "$sizes" ]]; then
+        # shellcheck disable=SC2086
+        set -- $sizes
+        bay_gbs=("${1:-${bay_gbs[0]}}" "${2:-${bay_gbs[1]}}"
+                 "${3:-${bay_gbs[2]}}" "${4:-${bay_gbs[3]}}")
+    fi
+    echo "Using: ${bay_slots[*]} ≈ ${bay_gbs[*]} GB" | tee -a "$report"
+    echo
+
+    echo "Current disks:"
+    lsblk -dno NAME,SIZE,MODEL,SERIAL,TRAN | sed 's/^/  /'
+    echo
+    echo "1) Insert four DIFFERENT-size drives into the four StarTech bays"
+    echo "   (match the size plan above — bay order is physical left→right)."
+    echo "2) Power the dock / reconnect USB so all four enumerate."
+    echo "3) Leave the old 2-bay SATA dock empty/unpowered (those are SATA-5/6)."
+    read -rp "Press enter when all four drives are up: " _
+
+    echo | tee -a "$report"
+    echo "Disks after quad insert:" | tee -a "$report"
+    lsblk -dno NAME,SIZE,MODEL,SERIAL,TRAN | tee -a "$report"
+    echo | tee -a "$report"
+
+    section "Per-disk USB identity (usable disks only)" "$report"
+
+    echo
+    echo "Usable drives (non-zero size, not OS disk):"
+    printf "  %-6s %-8s %-8s %-36s %s\n" "DEV" "SIZE" "LUN" "MODEL" "SERIAL"
+    while read -r name; do
+        [[ -z "$name" ]] && continue
+        disk_usable "$name" || continue
+        if lsblk -no MOUNTPOINT "/dev/$name" 2>/dev/null | grep -qx '/'; then
+            continue
+        fi
+        if findmnt -n -o SOURCE / 2>/dev/null | grep -q "/dev/$name"; then
+            continue
+        fi
+
+        size_b=$(lsblk -dbno SIZE "/dev/$name" 2>/dev/null || echo 0)
+        size_gb=$(( (size_b + 500000000) / 1000000000 ))
+        model=$(lsblk -dno MODEL "/dev/$name" 2>/dev/null | tr -s ' ')
+        serial=$(lsblk -dno SERIAL "/dev/$name" 2>/dev/null | tr -s ' ')
+        path=$(udevadm info --query=property --name="/dev/$name" 2>/dev/null \
+            | awk -F= '$1=="ID_PATH"{print $2; exit}')
+        lun=$(grep -oE 'scsi-[0-9:]+' <<<"$path" | head -n1 | awk -F: '{print $NF}')
+        vendor=$(udevadm info --query=property --name="/dev/$name" 2>/dev/null \
+            | awk -F= '$1=="ID_VENDOR"||$1=="ID_USB_VENDOR"{print $2; exit}')
+
+        names+=("$name")
+        printf "  %-6s %-8s %-8s %-36s %s\n" \
+            "$name" "${size_gb}GB" "${lun:-?}" "${model:--}" "${serial:--}"
+
+        {
+            echo
+            echo "--- /dev/$name ---"
+            echo "SIZE_BYTES=$size_b"
+            echo "SIZE_GB≈$size_gb"
+            echo "MODEL=$model"
+            echo "SERIAL=$serial"
+            echo "ID_PATH=$path"
+            echo "LUN=${lun:-unknown}"
+            echo "VENDOR=$vendor"
+            udevadm info --query=property --name="/dev/$name" 2>/dev/null \
+                | grep -E '^(ID_PATH|ID_SERIAL|ID_MODEL|ID_VENDOR|ID_USB_|ID_BUS)=' \
+                || true
+            echo "--- SMART probe ---"
+            smartctl -i -d sat "/dev/$name" 2>&1 | head -n 40 || true
+            smartctl -A -H -d sat "/dev/$name" 2>&1 | head -n 60 || true
+        } >>"$report"
+    done < <(list_disks)
+
+    if [[ ${#names[@]} -lt 4 ]]; then
+        echo
+        echo "!! Need 4 usable drives. Saw ${#names[@]}."
+        echo "   Unplug other docks, power-cycle the StarTech with all four in, re-run."
+        echo "Need >=4 usable drives; saw ${#names[@]}" >>"$report"
+        return 1
+    fi
+
+    match_bay() {
+        local target="$1" best="" best_delta=999 name size_b size_gb delta
+        for name in "${names[@]}"; do
+            size_b=$(lsblk -dbno SIZE "/dev/$name")
+            size_gb=$(( (size_b + 500000000) / 1000000000 ))
+            if (( size_gb > target )); then
+                delta=$(( size_gb - target ))
+            else
+                delta=$(( target - size_gb ))
+            fi
+            if (( delta * 100 <= target * 20 && delta < best_delta )); then
+                best="$name"
+                best_delta=$delta
+            fi
+        done
+        echo "$best"
+    }
+
+    local -a matched_devs=()
+    local -a matched_paths=()
+    echo
+    echo "Auto-match by size:"
+    for i in 0 1 2 3; do
+        local d
+        d=$(match_bay "${bay_gbs[$i]}")
+        matched_devs[$i]="$d"
+        if [[ -n "$d" ]]; then
+            echo "  ${bay_slots[$i]} (~${bay_gbs[$i]}GB) → /dev/$d ($(lsblk -dno SIZE,MODEL,SERIAL /dev/$d))"
+        else
+            echo "  ${bay_slots[$i]} (~${bay_gbs[$i]}GB) → (no match)"
+        fi
+    done
+
+    # Detect collisions
+    local collide=0
+    for i in 0 1 2 3; do
+        [[ -z "${matched_devs[$i]}" ]] && collide=1
+        for j in 0 1 2 3; do
+            if (( i < j )) && [[ -n "${matched_devs[$i]}" && "${matched_devs[$i]}" == "${matched_devs[$j]}" ]]; then
+                collide=1
+            fi
+        done
+    done
+
+    read -rp "Does that match what you plugged in? [enter=yes / n=fix manually]: " ok
+    if [[ "$ok" == "n" || "$ok" == "N" || $collide -eq 1 ]]; then
+        for i in 0 1 2 3; do
+            read -rp "  /dev name in physical ${bay_slots[$i]} (~${bay_gbs[$i]}GB): " d
+            matched_devs[$i]=${d#/dev/}
+        done
+    fi
+
+    {
+        echo
+        echo "===== CONFIRMED MAPPING ====="
+        echo "# Paste these into config/slots.toml (replace UNMAPPED-SATA-1..4):"
+        echo
+    } | tee -a "$report"
+
+    for i in 0 1 2 3; do
+        slot="${bay_slots[$i]}"
+        name="${matched_devs[$i]}"
+        path=$(udevadm info --query=property --name="/dev/$name" \
+            | awk -F= '$1=="ID_PATH"{print $2; exit}')
+        lun=$(grep -oE 'scsi-[0-9:]+' <<<"$path" | head -n1 | awk -F: '{print $NF}')
+        matched_paths[$i]="$path"
+        {
+            echo "${slot}_DEV=/dev/$name"
+            echo "${slot}_ID_PATH=$path"
+            echo "${slot}_LUN=${lun:-unknown}"
+            echo "${slot}_SERIAL=$(lsblk -dno SERIAL /dev/$name)"
+            echo "${slot}_SIZE=$(lsblk -dno SIZE /dev/$name)"
+            echo
+            echo "[slots.${slot}]"
+            echo "id_path = \"$path\""
+            echo "bridge = \"asmedia_sata\""
+            echo "hot_swap = true"
+            echo "shared_power_group = \"STARTECH 4BAY\""
+            echo
+        } | tee -a "$report"
+    done
+
+    echo
+    echo "Saved → $report"
+    echo "Copy the [slots.SATA-*] blocks above into config/slots.toml, then:"
+    echo "  sudo systemctl restart drivestation"
+}
+
+if [[ $QUAD -eq 1 ]]; then
+    quad_sata_map
+    echo
+    echo "Starting LAN report server so you can grab QUAD-SATA-MAP.txt..."
+    exec bash "$(dirname "$0")/serve_reports.sh" 2020
+fi
 
 if [[ $DUAL -eq 1 ]]; then
     dual_sata_map

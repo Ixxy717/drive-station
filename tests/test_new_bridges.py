@@ -10,7 +10,7 @@ from drivestation.wipe.methods import choose_method
 
 
 def _asm() -> SlotConfig:
-    return SlotConfig("NVME-C1", "path", "asm2362", hot_swap=True)
+    return SlotConfig("NVME-A1", "path", "asm2362", hot_swap=True)
 
 
 def _sas() -> SlotConfig:

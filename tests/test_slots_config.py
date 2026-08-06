@@ -9,13 +9,22 @@ from drivestation.models import SLOT_LAYOUT
 def test_default_slots_toml_loads_and_matches_layout():
     slots = load_slots_config()
     assert set(slots) == {s for s, _ in SLOT_LAYOUT}
-    assert slots["SATA-1"].id_path.endswith("scsi-0:0:0:0")
-    assert slots["SATA-2"].id_path.endswith("scsi-0:0:0:1")
-    assert slots["SATA-1"].bridge == "asmedia_sata"
-    assert slots["NVME-A1"].bridge == "rtl9210"
-    assert slots["M2-1"].bridge == "rtl9220"
-    assert slots["SATA-1"].hot_swap is False
+    # Full remap: every path is a placeholder until characterize on the mini PC.
+    assert all(s.id_path.startswith("UNMAPPED-") for s in slots.values())
+    # Primary docks first in naming
+    assert slots["NVME-A1"].bridge == "asm2362"
+    assert slots["NVME-B1"].bridge == "asm2362"
     assert slots["NVME-A1"].hot_swap is True
+    assert slots["SATA-1"].bridge == "asmedia_sata"
+    assert slots["SATA-1"].hot_swap is True
+    assert slots["SATA-1"].shared_power_group == "STARTECH 4BAY"
+    assert slots["SATA-5"].hot_swap is False
+    assert slots["SATA-5"].shared_power_group == "SATA DOCK"
+    assert slots["NVME-C1"].bridge == "rtl9210"
+    assert slots["NVME-C2"].bridge == "rtl9210"
+    assert slots["NVME-D1"].bridge == "rtl9210"
+    assert slots["NVME-D2"].bridge == "rtl9210"
+    assert slots["M2-1"].bridge == "rtl9220"
 
 
 def test_missing_file_raises(tmp_path: Path):

@@ -125,15 +125,27 @@ class SlotState:
 
 
 # Permanent physical slot identities. On the real station these map to USB
-# port paths via the allowlist created by the setup wizard (see hw/linux.py).
+# port paths via config/slots.toml. Remap after any cable move:
+#   sudo tools/dock_characterize.sh --quad   # SATA-1..4
+#   sudo tools/dock_characterize.sh --dual   # SATA-5/6
+#   sudo tools/dock_characterize.sh          # NVMe + M2 one at a time
 SLOT_LAYOUT: list[tuple[str, str]] = [
-    ("SATA-1", "SATA DOCK"),
-    ("SATA-2", "SATA DOCK"),
+    # StarTech SDOCK4U313 4-bay — primary SATA (hot-swap, SMART).
+    ("SATA-1", "STARTECH 4BAY"),
+    ("SATA-2", "STARTECH 4BAY"),
+    ("SATA-3", "STARTECH 4BAY"),
+    ("SATA-4", "STARTECH 4BAY"),
+    # Older 2-bay SATA dock — not hot-swap.
+    ("SATA-5", "SATA DOCK"),
+    ("SATA-6", "SATA DOCK"),
+    # StarTech single-bay NVMe toasters — primary NVMe (real SMART / wear %).
     ("NVME-A1", "NVME DOCK A"),
-    ("NVME-A2", "NVME DOCK A"),
     ("NVME-B1", "NVME DOCK B"),
-    ("NVME-B2", "NVME DOCK B"),
-    # Single usable bay on the dual M.2 SATA/NVMe dock (bay 2 needs bay 1
-    # occupied for transfer — we only expose the reliable bay as M2-1).
+    # SUITOK dual NVMe docks — secondary (identify OK; wear often UNKNOWN).
+    ("NVME-C1", "NVME DOCK C"),
+    ("NVME-C2", "NVME DOCK C"),
+    ("NVME-D1", "NVME DOCK D"),
+    ("NVME-D2", "NVME DOCK D"),
+    # Dual M.2 dock — only bay 1 is reliable alone.
     ("M2-1", "M.2 DOCK"),
 ]

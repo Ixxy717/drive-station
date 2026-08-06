@@ -11,7 +11,7 @@ def _sat(bridge="asmedia_sata") -> SlotConfig:
 
 
 def _rtl() -> SlotConfig:
-    return SlotConfig("NVME-A1", "path", "rtl9210", hot_swap=True)
+    return SlotConfig("NVME-C1", "path", "rtl9210", hot_swap=True)
 
 
 def test_read_identity_sata_ssd():

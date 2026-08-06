@@ -43,13 +43,13 @@ def test_decline_leaves_drive_untouched(station, backend, joblog):
 
 def test_all_slots_run_independently(station, backend):
     backend.insert_drive("NVME-A1", make_nvme(serial="P1"))
-    backend.insert_drive("NVME-B2", make_nvme(serial="P2"))
-    a1, b2 = station.slots["NVME-A1"], station.slots["NVME-B2"]
+    backend.insert_drive("NVME-B1", make_nvme(serial="P2"))
+    a1, b1 = station.slots["NVME-A1"], station.slots["NVME-B1"]
     wait_for(lambda: a1.status == SlotStatus.READY and
-             b2.status == SlotStatus.READY, message="both READY")
+             b1.status == SlotStatus.READY, message="both READY")
 
     station.confirm_wipe("NVME-A1")
-    station.confirm_wipe("NVME-B2")
+    station.confirm_wipe("NVME-B1")
     wait_for(lambda: a1.status == SlotStatus.PASSED and
-             b2.status == SlotStatus.PASSED, message="both PASSED")
-    assert sorted(backend.wipe_calls) == [("NVME-A1", "P1"), ("NVME-B2", "P2")]
+             b1.status == SlotStatus.PASSED, message="both PASSED")
+    assert sorted(backend.wipe_calls) == [("NVME-A1", "P1"), ("NVME-B1", "P2")]

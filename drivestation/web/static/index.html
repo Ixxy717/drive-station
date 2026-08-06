@@ -5,10 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Drive Station</title>
 <style>
-  /* Graphite console frame + light instrument cards.
-     Square geometry. Fixed card footprints. Color = state only:
-     green = verified wiped, amber = running, red = fault, blue = identifying.
-     Empty slots are ghost outlines so occupied slots carry all the weight. */
+  /* Graphite console — one viewport, every slot visible. No scroll. */
   :root {
     --canvas: #34373d;
     --section: #3d4046;
@@ -25,147 +22,167 @@
     --active: #2f6fc4;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; border-radius: 0 !important; }
+  html, body { height: 100%; overflow: hidden; }
   body {
     background: var(--canvas); color: var(--ink);
     font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
     user-select: none;
+    display: flex; flex-direction: column;
+    height: 100dvh;
   }
   .num { font-family: "Cascadia Mono", Consolas, monospace; font-variant-numeric: tabular-nums; }
 
-  /* ---------- top bar ---------- */
   #topbar {
+    flex: 0 0 40px;
     background: var(--topbar); color: #eceded;
     display: flex; justify-content: space-between; align-items: center;
-    padding: 0 22px; height: 46px;
-    position: sticky; top: 0; z-index: 10;
+    padding: 0 16px;
     border-bottom: 1px solid #000;
   }
-  #topbar .title { font-size: 13px; font-weight: 700; letter-spacing: 3.5px; }
-  #topbar .right { display: flex; align-items: center; gap: 26px; }
+  #topbar .title { font-size: 12px; font-weight: 700; letter-spacing: 3px; }
+  #topbar .right { display: flex; align-items: center; gap: 18px; }
   #topbar .nav a {
-    color: #a6a9af; text-decoration: none; font-size: 11px; font-weight: 700;
-    letter-spacing: 1.5px; margin-left: 14px;
+    color: #a6a9af; text-decoration: none; font-size: 10px; font-weight: 700;
+    letter-spacing: 1.4px; margin-left: 12px;
   }
   #topbar .nav a:hover { color: #fff; }
-  #counts { display: flex; gap: 20px; font-size: 12px; font-weight: 600; }
-  #counts .c { display: flex; align-items: center; gap: 7px; color: #a6a9af; }
+  #counts { display: flex; gap: 14px; font-size: 11px; font-weight: 600; }
+  #counts .c { display: flex; align-items: center; gap: 6px; color: #a6a9af; }
   #counts .n { color: #fff; font-weight: 700; }
-  #counts .sq { width: 8px; height: 8px; display: inline-block; }
+  #counts .sq { width: 7px; height: 7px; display: inline-block; }
   .sq.READY    { background: #eceded; }
   .sq.CHECKING, .sq.DETECTED { background: var(--active); }
   .sq.WIPING, .sq.VERIFYING  { background: var(--work); }
   .sq.PASSED   { background: #1da04f; }
   .sq.FAILED, .sq.ERROR { background: #e04a3d; }
   .sq.EMPTY    { background: var(--ghost); }
-  #clock { font-size: 13px; color: #a6a9af; letter-spacing: .5px; }
+  #clock { font-size: 12px; color: #a6a9af; letter-spacing: .5px; }
 
-  /* ---------- dock sections ---------- */
-  #groups {
-    display: grid; grid-template-columns: repeat(4, 1fr);
-    gap: 16px; padding: 18px 22px 28px;
-    min-height: calc(100vh - 46px);
-    align-content: start;
+  #queuebar {
+    display: none; flex: 0 0 auto;
+    margin: 0; padding: 6px 16px;
+    background: #2a3340; border-bottom: 1px solid var(--hair-dk);
+    color: #cdd0d5; font-size: 11px;
   }
-  @media (max-width: 1150px) { #groups { grid-template-columns: repeat(2, 1fr); } }
-  .group { background: var(--section); border: 1px solid var(--hair-dk); padding: 14px; }
-  .group h2 {
+  #queuebar b { color: #fff; letter-spacing: 1px; }
+
+  /* Rows fill remaining viewport; each row is one dock band. */
+  #board {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 8px 12px 10px;
+    overflow: hidden;
+  }
+  .band {
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--section);
+    border: 1px solid var(--hair-dk);
+    padding: 8px 10px 10px;
+  }
+  .band h2 {
+    flex: 0 0 auto;
     display: flex; justify-content: space-between; align-items: baseline;
-    font-size: 11px; font-weight: 700; letter-spacing: 2px;
+    font-size: 10px; font-weight: 700; letter-spacing: 2px;
     color: #cdd0d5; text-transform: uppercase;
-    padding-bottom: 10px; margin-bottom: 14px;
+    padding-bottom: 6px; margin-bottom: 8px;
     border-bottom: 1px solid var(--hair-dk);
   }
-  .group h2 .cnt { color: #83878e; font-weight: 600; letter-spacing: .5px; }
-
-  /* ---------- slot cards: fixed footprint, never shifts ---------- */
-  .tile {
-    display: flex; flex-direction: column;
-    height: 348px; overflow: hidden;
+  .band h2 .cnt { color: #83878e; font-weight: 600; letter-spacing: .5px; }
+  .band.wipe-only h2 span:first-child { color: #e8c07a; }
+  .slots {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: grid;
+    gap: 8px;
+    grid-auto-rows: 1fr;
   }
-  .tile + .tile { margin-top: 14px; }
+  .tile {
+    min-height: 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
   .tile.solid { background: var(--card); border: 1px solid #101113; }
   .tile.ghost { background: transparent; border: 1px dashed var(--ghost); color: #8d9199; }
 
   .tilebar {
+    flex: 0 0 auto;
     display: flex; justify-content: space-between; align-items: center;
-    padding: 10px 14px 9px;
+    gap: 6px; padding: 6px 10px 5px; flex-wrap: wrap;
   }
   .solid .tilebar { border-bottom: 1px solid var(--card-line); }
-  .tilebar .id { font-size: 14px; font-weight: 800; letter-spacing: .8px; }
+  .tilebar .id { font-size: 12px; font-weight: 800; letter-spacing: .6px; }
   .tilebar .iface {
-    font-size: 10px; font-weight: 700; letter-spacing: 1px;
+    font-size: 9px; font-weight: 700; letter-spacing: 1px;
     color: var(--muted); border: 1px solid var(--card-line);
-    padding: 2px 7px; text-transform: uppercase;
+    padding: 1px 5px; text-transform: uppercase;
   }
   .tilebar .guard {
-    font-size: 10px; font-weight: 800; letter-spacing: .6px;
+    font-size: 9px; font-weight: 800; letter-spacing: .5px;
     color: #141414; background: var(--work);
-    padding: 3px 7px; animation: blink 1.2s step-end infinite;
+    padding: 2px 5px; animation: blink 1.2s step-end infinite;
   }
   .tilebar .badge {
-    font-size: 10px; font-weight: 800; letter-spacing: .6px;
-    color: #fff; background: #5a3d1a; padding: 3px 7px;
+    font-size: 9px; font-weight: 800; letter-spacing: .5px;
+    color: #fff; background: #5a3d1a; padding: 2px 5px;
   }
-  .tilebar .badge.queue {
-    background: var(--active);
-  }
+  .tilebar .badge.queue { background: var(--active); }
   .ghost .tilebar .guard { color: #141414; }
-  .group.wipe-only h2 span:first-child { color: #e8c07a; }
-  #queuebar {
-    display: none; margin: 0 22px 0; padding: 10px 14px;
-    background: #2a3340; border: 1px solid var(--hair-dk);
-    color: #cdd0d5; font-size: 12px;
-  }
-  #queuebar b { color: #fff; letter-spacing: 1px; }
-  .yes.secondary { background: var(--active); }
-  .ask .buttons { flex-wrap: wrap; }
 
-  .data { padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
-  .row { display: grid; grid-template-columns: 76px 1fr; align-items: baseline; }
+  .data {
+    flex: 1 1 auto; min-height: 0;
+    padding: 6px 10px; display: flex; flex-direction: column; gap: 3px;
+    overflow: hidden;
+  }
+  .row { display: grid; grid-template-columns: 58px 1fr; align-items: baseline; gap: 4px; }
   .row .k {
-    font-size: 10.5px; font-weight: 600; letter-spacing: .8px;
+    font-size: 9px; font-weight: 600; letter-spacing: .7px;
     color: var(--muted); text-transform: uppercase;
   }
-  .row .v { font-size: 13.5px; font-weight: 500; overflow-wrap: anywhere; min-width: 0; }
-  .row .v.model { font-weight: 700; }
-  .row .v.mono { font-family: "Cascadia Mono", Consolas, monospace; font-size: 12.5px; }
-  .row .v.flags {
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    overflow-wrap: normal; font-size: 12.5px;
+  .row .v {
+    font-size: 12px; font-weight: 500; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap; min-width: 0;
   }
+  .row .v.model { font-weight: 700; }
+  .row .v.mono { font-family: "Cascadia Mono", Consolas, monospace; font-size: 11px; }
+  .row .v.flags { font-size: 11px; }
   .v.h-GOOD { color: var(--ok); font-weight: 700; }
-  .v.h-WARNING { color: #96660a; font-weight: 700; }
-  .v.h-UNKNOWN { color: #96660a; font-weight: 700; }
+  .v.h-WARNING, .v.h-UNKNOWN { color: #96660a; font-weight: 700; }
   .v.h-SCRAP, .v.h-FAIL { color: var(--alarm); font-weight: 700; }
   a.listing {
     color: var(--active); font-family: "Cascadia Mono", Consolas, monospace;
-    font-size: 12px; font-weight: 700; text-decoration: none;
+    font-size: 11px; font-weight: 700; text-decoration: none;
   }
-  a.listing:hover { text-decoration: underline; }
 
   .nodevice {
     flex: 1; display: flex; align-items: center; justify-content: center;
-    font-size: 11px; font-weight: 700; letter-spacing: 3px;
+    font-size: 10px; font-weight: 700; letter-spacing: 2px;
   }
   .solid .nodevice { color: var(--muted); }
 
-  /* ---------- progress ---------- */
-  .prog { padding: 2px 14px 12px; margin-top: auto; }
+  .prog { flex: 0 0 auto; padding: 2px 10px 8px; }
   .prog .lbl {
     display: flex; justify-content: space-between; align-items: baseline;
-    font-size: 10.5px; font-weight: 600; letter-spacing: .8px;
-    color: var(--muted); text-transform: uppercase; margin-bottom: 5px;
+    font-size: 9px; font-weight: 600; letter-spacing: .7px;
+    color: var(--muted); text-transform: uppercase; margin-bottom: 3px;
   }
-  .prog .pct { font-size: 21px; font-weight: 700; color: var(--ink); }
-  .prog .bar { height: 6px; background: #dddddad9; }
+  .prog .pct { font-size: 16px; font-weight: 700; color: var(--ink); }
+  .prog .bar { height: 5px; background: #dddddad9; }
   .prog .bar > div { height: 100%; background: var(--work); transition: width .4s linear; }
 
-  /* ---------- status band ---------- */
-  .foot { margin-top: auto; padding: 9px 14px 10px; }
-  .prog + .foot { margin-top: 0; }
-  .foot .word { font-size: 15px; font-weight: 800; letter-spacing: 2px; }
-  .foot .note { font-size: 12px; font-weight: 500; margin-top: 2px; }
-  .ghost .foot { color: #8d9199; padding-bottom: 12px; }
+  .foot { flex: 0 0 auto; padding: 6px 10px 7px; }
+  .foot .word { font-size: 12px; font-weight: 800; letter-spacing: 1.5px; }
+  .foot .note {
+    font-size: 10px; font-weight: 500; margin-top: 1px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .ghost .foot { color: #8d9199; }
   .solid .foot { border-top: 1px solid var(--card-line); }
   .foot.READY { background: #e4e4e1; }
   .foot.DETECTED, .foot.CHECKING { background: var(--active); color: #fff; border-top: none; }
@@ -175,44 +192,45 @@
   .foot.PASSED { background: var(--ok); color: #fff; border-top: none; }
   .foot.FAILED, .foot.ERROR { background: var(--alarm); color: #fff; border-top: none; }
 
-  /* ---------- operator action ---------- */
-  .ask { padding: 10px 14px 13px; border-top: 1px solid var(--card-line); margin-top: auto; }
+  .ask { flex: 0 0 auto; padding: 6px 10px 8px; border-top: 1px solid var(--card-line); }
   .ask .q {
-    font-size: 10.5px; font-weight: 600; letter-spacing: .8px;
-    color: var(--muted); text-transform: uppercase; margin-bottom: 8px;
+    font-size: 9px; font-weight: 600; letter-spacing: .7px;
+    color: var(--muted); text-transform: uppercase; margin-bottom: 5px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
-  .buttons { display: flex; gap: 9px; }
+  .buttons { display: flex; gap: 6px; flex-wrap: wrap; }
   button.act {
-    flex: 1; height: 46px; font-size: 14px; font-weight: 700;
-    letter-spacing: 2px; cursor: pointer; font-family: inherit;
-    border: 1px solid transparent;
+    flex: 1 1 auto; min-width: 0; height: 34px;
+    font-size: 11px; font-weight: 700; letter-spacing: 1.2px;
+    cursor: pointer; font-family: inherit; border: 1px solid transparent;
+    padding: 0 6px;
   }
   .yes { background: var(--ok); color: #fff; }
   .yes:active { background: #0f5e2c; }
+  .yes.secondary { background: var(--active); }
   .no { background: transparent; color: var(--ink); border-color: #b9b9b4; }
   .no:active { background: #e4e4e1; }
 
-  /* ---------- simulator ---------- */
   #simpanel {
-    display: none; margin: 0 22px 18px;
+    display: none; flex: 0 0 auto; max-height: 22vh; overflow: auto;
+    margin: 0 12px 8px;
     background: var(--section); border: 1px solid var(--hair-dk);
-    padding: 14px; color: #cdd0d5;
+    padding: 10px; color: #cdd0d5;
   }
   #simpanel h2 {
-    font-size: 11px; font-weight: 700; letter-spacing: 2px;
+    font-size: 10px; font-weight: 700; letter-spacing: 2px;
     text-transform: uppercase;
-    padding-bottom: 10px; margin-bottom: 12px;
+    padding-bottom: 8px; margin-bottom: 8px;
     border-bottom: 1px solid var(--hair-dk);
   }
-  #simrows { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px 26px; }
-  #simpanel .srow { display: flex; gap: 8px; align-items: center; font-size: 12px; }
-  #simpanel b { width: 62px; font-family: "Cascadia Mono", Consolas, monospace; font-size: 12px; }
+  #simrows { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px 16px; }
+  #simpanel .srow { display: flex; gap: 6px; align-items: center; font-size: 11px; }
+  #simpanel b { width: 56px; font-family: "Cascadia Mono", Consolas, monospace; font-size: 11px; }
   #simpanel select, #simpanel button {
-    font-family: "Cascadia Mono", Consolas, monospace; font-size: 11.5px;
+    font-family: "Cascadia Mono", Consolas, monospace; font-size: 11px;
     border: 1px solid var(--hair-dk); background: #2c2e33;
-    color: #cdd0d5; padding: 4px 9px; cursor: pointer;
+    color: #cdd0d5; padding: 3px 7px; cursor: pointer;
   }
-  #simpanel button:active { background: #3d4046; }
 </style>
 </head>
 <body>
@@ -220,8 +238,7 @@
     <span>
       <span class="title">DRIVE STATION</span>
       <span class="nav">
-        <a href="/">GRADE</a>
-        <a href="/wipe">WIPE ONLY</a>
+        <a href="/">BOARD</a>
         <a href="/logs">LOGS</a>
         <a href="/files/">FILES</a>
       </span>
@@ -232,7 +249,7 @@
     </div>
   </div>
   <div id="queuebar"></div>
-  <div id="groups"></div>
+  <div id="board"></div>
   <div id="simpanel">
     <h2>Simulation control — dev build only</h2>
     <div id="simrows"></div>
@@ -249,9 +266,13 @@ const TYPE_LABEL = {
 };
 const STATUS_ORDER = ["READY","CHECKING","WIPING","VERIFYING","PASSED","FAILED","ERROR","EMPTY"];
 const TB = 1e12;
-// /wipe → wipe-only docks; / → grading docks (hide WIPE ONLY group)
-const BOARD = location.pathname.replace(/\/+$/, "") === "/wipe" ? "wipe" : "grade";
-document.title = BOARD === "wipe" ? "Drive Station — Wipe Only" : "Drive Station";
+
+/* One screen: grade + wipe bands. /wipe still works but shows the same full board. */
+const BANDS = [
+  { title: "SATA — STARTECH 4BAY", groups: ["STARTECH 4BAY"], cols: 4 },
+  { title: "GRADE — SATA / NVME / M.2", groups: ["SATA DOCK", "NVME GRADE A", "NVME GRADE B", "M.2 DOCK"], cols: 5 },
+  { title: "WIPE ONLY", groups: ["WIPE ONLY"], cols: 4, wipe: true },
+];
 
 async function post(url, body) {
   await fetch(url, {method: "POST",
@@ -263,15 +284,13 @@ function row(k, v, cls = "") {
   return `<div class="row"><span class="k">${k}</span><span class="v ${cls}">${v}</span></div>`;
 }
 
-// Docks that need a port power-cycle to swap drives. Cycling the dual-bay
-// SATA dock drops BOTH bays, so warn on a bay whenever its sibling is busy.
 const SHARED_POWER_GROUPS = ["SATA DOCK"];
 
 function guardChip(s, busySlots) {
   if (!SHARED_POWER_GROUPS.includes(s.group)) return "";
   const sibling = busySlots.find(id => id !== s.slot_id);
   if (!sibling) return "";
-  return `<span class="guard">DO NOT POWER-CYCLE — ${sibling} BUSY</span>`;
+  return `<span class="guard">NO POWER-CYCLE — ${sibling} BUSY</span>`;
 }
 
 function tileHTML(s, busyByGroup) {
@@ -296,10 +315,8 @@ function tileHTML(s, busyByGroup) {
     body = `<div class="data">`;
     body += row("Model", `${d.manufacturer} ${d.model}`, "model");
     body += row("Serial", d.serial, "mono");
-    body += row("Capacity", d.capacity);
-    if (s.usage && s.usage.label) {
-      body += row("Data", s.usage.label);
-    }
+    body += row("Size", d.capacity);
+    if (s.usage && s.usage.label) body += row("Data", s.usage.label);
     if (h) {
       const pct = h.percent === null ? "" : `${h.percent}% `;
       body += row("Health", `${pct}${h.verdict}`, `h-${h.verdict}`);
@@ -307,11 +324,11 @@ function tileHTML(s, busyByGroup) {
       if (h.warnings.length && !busy) body += row("Flags", h.warnings.join(" · "), "flags");
     }
     if (s.wipe_method) {
-      const label = s.status === "READY" ? "Planned" : "Method";
+      const label = s.status === "READY" ? "Plan" : "Method";
       body += row(label, s.wipe_method.replaceAll("_", " "), "mono");
     }
     if (s.status === "PASSED") {
-      body += row("Listing", `<a class="listing" href="/d/${encodeURIComponent(d.serial)}">/d/${d.serial}</a>`);
+      body += row("Card", `<a class="listing" href="/d/${encodeURIComponent(d.serial)}">/d/${d.serial}</a>`);
     }
     body += `</div>`;
   } else if (s.status === "DETECTED" || s.status === "CHECKING") {
@@ -323,7 +340,7 @@ function tileHTML(s, busyByGroup) {
   if (s.status === "WIPING" || s.status === "VERIFYING") {
     const pct = Math.round(s.progress * 100);
     body += `<div class="prog">
-        <div class="lbl"><span>${s.status === "WIPING" ? "Wipe pass" : "Read-back verify"}</span>
+        <div class="lbl"><span>${s.status === "WIPING" ? "Wipe" : "Verify"}</span>
         <span class="pct num">${pct}%</span></div>
         <div class="bar"><div style="width:${pct}%"></div></div>
       </div>`;
@@ -345,12 +362,12 @@ function tileHTML(s, busyByGroup) {
     if (s.wipe_only) {
       buttons.push(`<button class="act yes" onclick="post('/api/slots/${s.slot_id}/wipe')">WIPE</button>`);
     } else if (largeNvme) {
-      buttons.push(`<button class="act yes" onclick="post('/api/slots/${s.slot_id}/wipe')">QUEUE WIPE</button>`);
+      buttons.push(`<button class="act yes" onclick="post('/api/slots/${s.slot_id}/wipe')">QUEUE</button>`);
       buttons.push(`<button class="act yes secondary" onclick="post('/api/slots/${s.slot_id}/wipe-here')">WIPE HERE</button>`);
     } else {
       buttons.push(`<button class="act yes" onclick="post('/api/slots/${s.slot_id}/wipe')">WIPE</button>`);
       if (d && d.drive_type === "NVME") {
-        buttons.push(`<button class="act yes secondary" onclick="post('/api/slots/${s.slot_id}/queue')">SEND TO WIPE DOCK</button>`);
+        buttons.push(`<button class="act yes secondary" onclick="post('/api/slots/${s.slot_id}/queue')">TO WIPE DOCK</button>`);
       }
     }
     buttons.push(`<button class="act no" onclick="post('/api/slots/${s.slot_id}/decline')">SKIP</button>`);
@@ -411,23 +428,30 @@ async function refresh() {
   try {
     const res = await fetch("/api/state");
     const data = await res.json();
-    const visible = data.slots.filter(s =>
-      BOARD === "wipe" ? s.wipe_only : !s.wipe_only);
-    const groups = {};
+    const all = data.slots;
+    const byGroup = {};
     const busyByGroup = {};
-    for (const s of visible) {
-      (groups[s.group] ??= []).push(s);
+    for (const s of all) {
+      (byGroup[s.group] ??= []).push(s);
       if (s.status === "WIPING" || s.status === "VERIFYING") {
         (busyByGroup[s.group] ??= []).push(s.slot_id);
       }
     }
-    document.getElementById("groups").innerHTML =
-      Object.entries(groups).map(([name, slots]) => {
-        const wipeCls = name === "WIPE ONLY" ? " wipe-only" : "";
-        return `<div class="group${wipeCls}"><h2><span>${name}</span><span class="cnt">${slots.length} SLOTS</span></h2>
-         ${slots.map(s => tileHTML(s, busyByGroup)).join("")}</div>`;
-      }).join("");
-    renderCounts(visible);
+
+    document.getElementById("board").innerHTML = BANDS.map(band => {
+      const slots = band.groups.flatMap(g => byGroup[g] || []);
+      if (!slots.length) return "";
+      const wipeCls = band.wipe ? " wipe-only" : "";
+      const flex = `flex:${slots.length} 1 0`;
+      return `<div class="band${wipeCls}" style="${flex}">
+        <h2><span>${band.title}</span><span class="cnt">${slots.length} SLOTS</span></h2>
+        <div class="slots" style="grid-template-columns: repeat(${band.cols}, minmax(0, 1fr))">
+          ${slots.map(s => tileHTML(s, busyByGroup)).join("")}
+        </div>
+      </div>`;
+    }).join("");
+
+    renderCounts(all);
     const q = data.pending_wipes || [];
     const qb = document.getElementById("queuebar");
     if (q.length) {

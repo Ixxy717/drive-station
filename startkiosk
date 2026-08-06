@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+# Fullscreen board on the mini PC screen.
+#   sudo startkiosk
+set -u
+
+if [[ $EUID -ne 0 ]]; then
+    echo "Run: sudo startkiosk" >&2
+    exit 1
+fi
+
+REPO=""
+SELF="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || realpath "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")"
+if [[ -f "$(dirname "$SELF")/deploy/kiosk-install.sh" ]]; then
+    REPO="$(cd "$(dirname "$SELF")" && pwd)"
+fi
+if [[ -z "$REPO" ]]; then
+    for candidate in /home/drivestation/drive-station /root/drive-station; do
+        [[ -f "$candidate/deploy/kiosk-install.sh" ]] && REPO="$candidate" && break
+    done
+fi
+
+systemctl start drivestation 2>/dev/null || true
+
+if ! command -v cage >/dev/null; then
+    echo "cage not installed — running kiosk install once..."
+    if [[ -n "$REPO" ]]; then
+        bash "$REPO/deploy/kiosk-install.sh"
+        exit $?
+    fi
+    echo "Can't find repo. git pull in ~/drive-station then:"
+    echo "  sudo bash deploy/kiosk-install.sh"
+    exit 1
+fi
+
+if command -v chromium >/dev/null; then
+    cat > /usr/local/bin/drivestation-kiosk <<"EOF"
+#!/usr/bin/env bash
+GRADE_URL="http://127.0.0.1:8330/"
+LOG=/tmp/drivestation-kiosk-browser.log
+exec > >(tee -a "$LOG") 2>&1
+echo "=== kiosk browser start $(date -Iseconds) ==="
+for _ in $(seq 1 60); do
+    curl -fsS -o /dev/null "$GRADE_URL" && break
+    echo "waiting for board..."
+    sleep 2
+done
+exec chromium \
+    --start-fullscreen \
+    --incognito \
+    --noerrdialogs \
+    --disable-infobars \
+    --disable-session-crashed-bubble \
+    --check-for-update-interval=31536000 \
+    --enable-features=UseOzonePlatform \
+    --ozone-platform=wayland \
+    "$GRADE_URL"
+EOF
+elif command -v firefox-esr >/dev/null; then
+    cat > /usr/local/bin/drivestation-kiosk <<"EOF"
+#!/usr/bin/env bash
+GRADE_URL="http://127.0.0.1:8330/"
+for _ in $(seq 1 60); do
+    curl -fsS -o /dev/null "$GRADE_URL" && break
+    sleep 2
+done
+exec firefox-esr --kiosk "$GRADE_URL"
+EOF
+else
+    echo "No browser. Run: sudo bash ${REPO:-~/drive-station}/deploy/kiosk-install.sh"
+    exit 1
+fi
+chmod +x /usr/local/bin/drivestation-kiosk
+
+if [[ ! -f /etc/systemd/system/drivestation-kiosk.service ]]; then
+    if [[ -n "$REPO" ]]; then
+        bash "$REPO/deploy/kiosk-install.sh"
+        exit $?
+    fi
+    echo "Kiosk never installed. sudo bash ~/drive-station/deploy/kiosk-install.sh"
+    exit 1
+fi
+
+systemctl disable getty@tty1 2>/dev/null || true
+systemctl stop getty@tty1 2>/dev/null || true
+systemctl enable drivestation-kiosk
+systemctl restart drivestation-kiosk
+
+echo "Kiosk starting."
+echo "Black again?  sudo debugkiosk"
+echo "Just off?     sudo fixkiosk"

@@ -33,6 +33,10 @@ sed -e "s|@REPO@|$REPO|g" -e "s|@PY@|$PY|g" \
 systemctl daemon-reload
 systemctl enable --now drivestation
 
+# Short commands on PATH: sudo debugkiosk / fixkiosk / startkiosk
+bash "$REPO/deploy/install-commands.sh"
+
 echo
 echo "Installed. Board: http://$(hostname -I 2>/dev/null | awk '{print $1}'):8330/"
+echo "Kiosk stuck/black?  sudo debugkiosk"
 systemctl --no-pager --lines=5 status drivestation || true

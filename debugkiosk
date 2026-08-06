@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# Black screen / kiosk broken?
+#   sudo debugkiosk          (anywhere, after install)
+#   sudo bash debugkiosk     (from ~/drive-station after git pull)
+set -u
+
+if [[ $EUID -ne 0 ]]; then
+    echo "Run: sudo debugkiosk" >&2
+    exit 1
+fi
+
+REPORT=/tmp/ds-kiosk-debug.txt
+{
+    echo "===== drive-station kiosk debug $(date -Iseconds) ====="
+    echo
+
+    echo "--- stopping kiosk, restoring text console on tty1 ---"
+    systemctl stop drivestation-kiosk 2>/dev/null || true
+    systemctl disable drivestation-kiosk 2>/dev/null || true
+    systemctl enable getty@tty1 2>/dev/null || true
+    systemctl start getty@tty1 2>/dev/null || true
+    echo "OK — Ctrl+Alt+F1 for login (F2/F3 also work)."
+    echo
+
+    echo "--- drivestation app ---"
+    systemctl is-active drivestation 2>/dev/null || echo "(not active)"
+    systemctl --no-pager --lines=8 status drivestation 2>&1 || true
+    echo
+
+    echo "--- board HTTP ---"
+    code=$(curl -sS -o /dev/null -w "%{http_code}" --connect-timeout 3 \
+        http://127.0.0.1:8330/ 2>/dev/null || echo "FAIL")
+    echo "GET http://127.0.0.1:8330/ → $code"
+    IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+    echo "LAN board: http://${IP:-?}:8330/"
+    echo "LAN wipe : http://${IP:-?}:8330/wipe"
+    echo
+
+    echo "--- browsers / cage ---"
+    command -v cage || echo "cage: MISSING"
+    command -v chromium || echo "chromium: MISSING"
+    command -v firefox-esr || echo "firefox-esr: MISSING"
+    echo
+
+    echo "--- browser log (if any) ---"
+    if [[ -f /tmp/drivestation-kiosk-browser.log ]]; then
+        tail -n 40 /tmp/drivestation-kiosk-browser.log
+    else
+        echo "(none yet)"
+    fi
+    echo
+
+    echo "--- last 60 kiosk log lines ---"
+    journalctl -u drivestation-kiosk -n 60 --no-pager 2>&1 || true
+    echo
+
+    echo "--- last 20 drivestation log lines ---"
+    journalctl -u drivestation -n 20 --no-pager 2>&1 || true
+} | tee "$REPORT"
+
+echo
+echo "========================================"
+echo " Kiosk STOPPED. Text console restored."
+echo " Dump saved: $REPORT"
+echo
+echo " Board from phone/PC:"
+echo "   http://$(hostname -I 2>/dev/null | awk '{print $1}'):8330/"
+echo
+echo " Try screen again later:"
+echo "   sudo startkiosk"
+echo "========================================"

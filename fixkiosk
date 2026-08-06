@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Kill black-screen kiosk, put the login console back.
+#   sudo fixkiosk
+set -u
+
+if [[ $EUID -ne 0 ]]; then
+    echo "Run: sudo fixkiosk" >&2
+    exit 1
+fi
+
+systemctl stop drivestation-kiosk 2>/dev/null || true
+systemctl disable drivestation-kiosk 2>/dev/null || true
+systemctl enable getty@tty1 2>/dev/null || true
+systemctl start getty@tty1 2>/dev/null || true
+systemctl start drivestation 2>/dev/null || true
+
+IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+echo "Kiosk OFF. Text console: Ctrl+Alt+F1"
+echo "Board on LAN: http://${IP:-127.0.0.1}:8330/"
+echo "Back on later: sudo startkiosk"

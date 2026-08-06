@@ -114,10 +114,12 @@ systemctl disable getty@tty1.service 2>/dev/null || true
 systemctl enable --now drivestation-kiosk.service
 systemctl set-default graphical.target
 
+bash "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/install-commands.sh"
+
 echo
 echo "Kiosk enabled on the mini PC screen."
-echo "  Alt+F4  — close the board (stays closed until start/reboot)"
-echo "  Grade   — http://127.0.0.1:8330/"
-echo "  Wipe    — http://127.0.0.1:8330/wipe  (2nd monitor if present)"
-echo "  sudo systemctl start drivestation-kiosk   # reopen after Alt+F4"
-echo "  Ctrl+Alt+F2                               # text console"
+echo "  Alt+F4           — close board"
+echo "  sudo debugkiosk  — black screen / dump logs / restore console"
+echo "  sudo fixkiosk    — just turn kiosk off"
+echo "  sudo startkiosk  — turn kiosk back on"
+echo "  Ctrl+Alt+F2      — text console"

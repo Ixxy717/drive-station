@@ -1,0 +1,195 @@
+#!/usr/bin/env bash
+# ONE command. Do not dig around — just run this, then stop.
+#
+#   git -C ~/drive-station pull && sudo bash ~/drive-station/syncstation
+#
+# Pulls/fixes the station, writes every useful log to a LAN folder, and
+# keeps http://<ip>:2021/ up so Cursor can read it. You do nothing else.
+set -u
+
+if [[ $EUID -ne 0 ]]; then
+    echo "Run exactly:" >&2
+    echo "  git -C ~/drive-station pull && sudo bash ~/drive-station/syncstation" >&2
+    exit 1
+fi
+
+REPO=""
+if [[ -f /etc/drivestation-repo-path ]]; then
+    REPO="$(cat /etc/drivestation-repo-path 2>/dev/null || true)"
+fi
+if [[ -z "$REPO" || ! -f "$REPO/run.py" ]]; then
+    for candidate in /home/drivestation/drive-station /root/drive-station \
+                     /home/*/drive-station; do
+        [[ -f "$candidate/run.py" ]] && REPO="$candidate" && break
+    done
+fi
+if [[ -z "$REPO" || ! -f "$REPO/run.py" ]]; then
+    echo "FAIL: cannot find drive-station checkout" >&2
+    exit 1
+fi
+
+echo "$REPO" > /etc/drivestation-repo-path
+OUT=/var/lib/drivestation-debug-lan
+mkdir -p "$OUT"
+rm -f "$OUT"/* 2>/dev/null || true
+
+{
+    echo "===== syncstation $(date -Iseconds) ====="
+    echo "repo=$REPO"
+    echo "host=$(hostname)"
+    echo "ip=$(hostname -I 2>/dev/null)"
+    echo
+} | tee "$OUT/00-summary.txt"
+
+# --- install short commands + deps + restart board ---
+{
+    echo "===== install-commands ====="
+    bash "$REPO/deploy/install-commands.sh" 2>&1 || true
+    echo
+    echo "===== apt ====="
+    apt-get update -qq 2>&1 | tail -n 20 || true
+    apt-get install -y curl python3-pip 2>&1 | tail -n 40 || true
+    echo
+    echo "===== pip ====="
+    python3 -m pip install -r "$REPO/requirements.txt" --break-system-packages 2>&1 \
+        || pip3 install -r "$REPO/requirements.txt" --break-system-packages 2>&1 \
+        || true
+    echo
+    echo "===== deploy/install.sh ====="
+    bash "$REPO/deploy/install.sh" 2>&1 || true
+} | tee "$OUT/01-fix.txt"
+
+# --- rewrite kiosk launcher (python wait, no curl) ---
+cat > /usr/local/bin/drivestation-kiosk <<"EOF"
+#!/usr/bin/env bash
+GRADE_URL="http://127.0.0.1:8330/"
+LOG=/tmp/drivestation-kiosk-browser.log
+exec > >(tee -a "$LOG") 2>&1
+echo "=== kiosk browser start $(date -Iseconds) ==="
+for i in $(seq 1 60); do
+  if python3 -c "import urllib.request; urllib.request.urlopen('$GRADE_URL', timeout=2)" 2>/dev/null; then
+    break
+  fi
+  echo "waiting for board ($i)..."
+  sleep 2
+done
+if command -v chromium >/dev/null; then
+  exec chromium --start-fullscreen --incognito --noerrdialogs \
+    --disable-infobars --disable-session-crashed-bubble \
+    --check-for-update-interval=31536000 \
+    --enable-features=UseOzonePlatform --ozone-platform=wayland \
+    "$GRADE_URL"
+fi
+exec firefox-esr --kiosk "$GRADE_URL"
+EOF
+chmod +x /usr/local/bin/drivestation-kiosk
+
+# Keep text console; do NOT auto-start kiosk (black screen risk until board is healthy).
+systemctl stop drivestation-kiosk 2>/dev/null || true
+systemctl disable drivestation-kiosk 2>/dev/null || true
+systemctl enable getty@tty1 2>/dev/null || true
+systemctl start getty@tty1 2>/dev/null || true
+
+sleep 2
+
+# --- status dumps ---
+{
+    echo "===== systemctl drivestation ====="
+    systemctl --no-pager --full status drivestation 2>&1 || true
+    echo
+    echo "===== systemctl drivestation-kiosk ====="
+    systemctl --no-pager --full status drivestation-kiosk 2>&1 || true
+    echo
+    echo "===== which tools ====="
+    command -v python3; command -v curl; command -v cage; command -v chromium; command -v firefox-esr
+    python3 -c "import uvicorn,fastapi; print('uvicorn', uvicorn.__version__, 'fastapi', fastapi.__version__)" 2>&1 || echo "IMPORT FAIL"
+    echo
+    echo "===== board HTTP ====="
+    code=$(curl -sS -o /dev/null -w "%{http_code}" --connect-timeout 3 http://127.0.0.1:8330/ 2>/dev/null || echo FAIL)
+    echo "GET / → $code"
+    curl -sS --connect-timeout 3 http://127.0.0.1:8330/api/state 2>&1 | head -c 2000 || true
+    echo
+} | tee "$OUT/02-status.txt"
+
+{
+    echo "===== journal drivestation (200) ====="
+    journalctl -u drivestation -n 200 --no-pager 2>&1 || true
+} | tee "$OUT/03-journal-drivestation.txt"
+
+{
+    echo "===== journal drivestation-kiosk (200) ====="
+    journalctl -u drivestation-kiosk -n 200 --no-pager 2>&1 || true
+} | tee "$OUT/04-journal-kiosk.txt"
+
+{
+    echo "===== browser log ====="
+    if [[ -f /tmp/drivestation-kiosk-browser.log ]]; then
+        cat /tmp/drivestation-kiosk-browser.log
+    else
+        echo "(none)"
+    fi
+    echo
+    echo "===== slots.toml ====="
+    cat "$REPO/config/slots.toml" 2>&1 || true
+    echo
+    echo "===== git ====="
+    git -C "$REPO" rev-parse --short HEAD 2>&1 || true
+    git -C "$REPO" status -sb 2>&1 || true
+    git -C "$REPO" log -3 --oneline 2>&1 || true
+} | tee "$OUT/05-config-git.txt"
+
+# Index page for humans / Cursor
+IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+cat > "$OUT/index.html" <<EOF
+<!DOCTYPE html><html><head><meta charset=utf-8><title>Drive Station Debug</title></head>
+<body style="font:16px system-ui;max-width:720px;margin:40px auto">
+<h1>Drive Station debug dump</h1>
+<p>Host <b>$IP</b> — $(date -Iseconds)</p>
+<ul>
+<li><a href="00-summary.txt">00-summary.txt</a></li>
+<li><a href="01-fix.txt">01-fix.txt</a></li>
+<li><a href="02-status.txt">02-status.txt</a></li>
+<li><a href="03-journal-drivestation.txt">03-journal-drivestation.txt</a></li>
+<li><a href="04-journal-kiosk.txt">04-journal-kiosk.txt</a></li>
+<li><a href="05-config-git.txt">05-config-git.txt</a></li>
+</ul>
+<p>Board: <a href="http://$IP:8330/">http://$IP:8330/</a></p>
+</body></html>
+EOF
+
+# systemd LAN server — survives this script exiting
+cat > /etc/systemd/system/drivestation-debug-lan.service <<EOF
+[Unit]
+Description=Drive Station debug dump LAN (:2021)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=$OUT
+ExecStart=/usr/bin/python3 -m http.server 2021 --bind 0.0.0.0 --directory $OUT
+Restart=always
+RestartSec=1
+
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload
+systemctl enable drivestation-debug-lan.service >/dev/null 2>&1 || true
+systemctl restart drivestation-debug-lan.service
+sleep 0.5
+
+LOCAL_OK=NO
+curl -fsS -o /dev/null --connect-timeout 2 "http://127.0.0.1:2021/02-status.txt" && LOCAL_OK=YES
+
+{
+    echo "LAN=http://${IP}:2021/"
+    echo "LOCAL_FETCH=$LOCAL_OK"
+    echo "BOARD_CODE=$code"
+    echo "DONE — tell Cursor to read http://${IP}:2021/"
+} | tee -a "$OUT/00-summary.txt"
+
+echo
+echo "========================================"
+echo " DONE. Do nothing else."
+echo " Tell Cursor: read http://${IP}:2021/"
+echo "========================================"

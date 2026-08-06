@@ -157,14 +157,28 @@ cat > "$OUT/index.html" <<EOF
 </body></html>
 EOF
 
-# Kill ANYTHING on :2021 (old nohup / stale unit), then bind the new dump dir.
+# Also mirror onto the board's /files/ tree (port 8330) so Cursor can read
+# even if :2021 is wedged by an orphan process.
+BOARD_OUT="$REPO/reports/syncstation"
+mkdir -p "$BOARD_OUT"
+rm -f "$BOARD_OUT"/* 2>/dev/null || true
+cp -a "$OUT"/. "$BOARD_OUT"/ 2>/dev/null || true
+chown -R drivestation:drivestation "$BOARD_OUT" 2>/dev/null || true
+
+# Kill ANYTHING on :2021 (old nohup under /tmp/ds-kiosk-lan is the usual culprit).
 systemctl stop drivestation-debug-lan.service 2>/dev/null || true
-pkill -f 'http.server 2021' 2>/dev/null || true
-fuser -k 2021/tcp 2>/dev/null || true
+systemctl reset-failed drivestation-debug-lan.service 2>/dev/null || true
+fuser -k -9 2021/tcp 2>/dev/null || true
+pkill -9 -f 'http.server 2021' 2>/dev/null || true
+sleep 1
+# Second pass — orphans sometimes respawn once.
+fuser -k -9 2021/tcp 2>/dev/null || true
+pkill -9 -f 'http.server 2021' 2>/dev/null || true
 sleep 0.5
 
 MARKER="READY-$(date +%Y%m%d-%H%M%S)"
 echo "$MARKER" > "$OUT/READY.txt"
+cp -f "$OUT/READY.txt" "$BOARD_OUT/READY.txt" 2>/dev/null || true
 
 cat > /etc/systemd/system/drivestation-debug-lan.service <<EOF
 [Unit]
@@ -175,8 +189,10 @@ After=network.target
 Type=simple
 WorkingDirectory=$OUT
 ExecStart=/usr/bin/python3 -m http.server 2021 --bind 0.0.0.0 --directory $OUT
-Restart=always
-RestartSec=1
+Restart=on-failure
+RestartSec=2
+StartLimitIntervalSec=30
+StartLimitBurst=3
 
 [Install]
 WantedBy=multi-user.target
@@ -185,37 +201,50 @@ systemctl daemon-reload
 systemctl enable drivestation-debug-lan.service >/dev/null 2>&1 || true
 systemctl restart drivestation-debug-lan.service
 
-# Do not claim DONE until the NEW files are actually served.
+# Verify with python (curl may be missing); never claim DONE on a lie.
 LOCAL_OK=NO
 for _ in $(seq 1 20); do
-    got=$(curl -fsS --connect-timeout 1 "http://127.0.0.1:2021/READY.txt" 2>/dev/null | tr -d '\r\n' || true)
+    got=$(python3 -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:2021/READY.txt', timeout=1).read().decode().strip())" 2>/dev/null || true)
     if [[ "$got" == "$MARKER" ]]; then
         LOCAL_OK=YES
         break
     fi
+    # If something else stole the port again, kill and retry once mid-loop.
+    if [[ "$_" == "5" || "$_" == "12" ]]; then
+        fuser -k -9 2021/tcp 2>/dev/null || true
+        systemctl restart drivestation-debug-lan.service 2>/dev/null || true
+    fi
     sleep 0.5
 done
 
+# Refresh board mirror with final summary fields.
 {
     echo "LAN=http://${IP}:2021/"
+    echo "BOARD_DUMP=http://${IP}:8330/files/syncstation/"
     echo "READY_MARKER=$MARKER"
     echo "LOCAL_FETCH=$LOCAL_OK"
     echo "BOARD_CODE=$code"
     if [[ "$LOCAL_OK" == "YES" ]]; then
-        echo "DONE — tell Cursor to read http://${IP}:2021/"
+        echo "DONE — Cursor: http://${IP}:2021/  or  http://${IP}:8330/files/syncstation/"
     else
-        echo "FAIL — LAN server did not serve new dump. status=$(systemctl is-active drivestation-debug-lan)"
+        echo "FAIL — :2021 still blocked. Board mirror should still work."
+        echo "port2021=$(ss -lntp | grep 2021 || true)"
         systemctl --no-pager --full status drivestation-debug-lan 2>&1 | tail -n 30 || true
     fi
 } | tee -a "$OUT/00-summary.txt"
+cp -a "$OUT"/. "$BOARD_OUT"/ 2>/dev/null || true
+chown -R drivestation:drivestation "$BOARD_OUT" 2>/dev/null || true
 
 echo
 echo "========================================"
 if [[ "$LOCAL_OK" == "YES" ]]; then
-    echo " DONE. Do nothing else."
-    echo " Tell Cursor: read http://${IP}:2021/"
+    echo " DONE."
+    echo " Cursor reads: http://${IP}:2021/"
+    echo " Backup:       http://${IP}:8330/files/syncstation/"
 else
-    echo " FAILED to publish dump on :2021"
-    echo " Paste the lines above to Cursor."
+    echo " :2021 FAILED (my bug if this prints after a clean run)."
+    echo " Backup dump is on the board:"
+    echo "   http://${IP}:8330/files/syncstation/"
+    echo " Tell Cursor to read that."
 fi
 echo "========================================"

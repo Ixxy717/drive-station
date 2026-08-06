@@ -246,6 +246,28 @@ def _attr_raw(table: list, name_substr: str) -> Optional[int]:
     return None
 
 
+def _attr_temperature_c(table: list) -> Optional[int]:
+    """ATA temp raw is often packed (min/max in high bytes). Prefer string/value."""
+    for row in table or []:
+        n = str(row.get("name") or "").lower()
+        if "temperature" not in n:
+            continue
+        raw = row.get("raw")
+        if isinstance(raw, dict):
+            m = re.match(r"(-?\d+)", str(raw.get("string") or ""))
+            if m:
+                return int(m.group(1))
+            val = raw.get("value")
+            if isinstance(val, int):
+                low = val & 0xFF
+                if 0 <= low <= 120:
+                    return low
+        v = row.get("value")
+        if isinstance(v, int) and 0 <= v <= 120:
+            return v
+    return None
+
+
 def _parse_nvme_health_text(text: str) -> dict[str, Any]:
     """Parse smartctl text when JSON log page is missing (common on RTL9210)."""
     raw: dict[str, Any] = {}
@@ -533,7 +555,7 @@ def read_health(
     cycles = _attr_raw(table, "power_cycle")
     if cycles is not None:
         raw["power_cycles"] = cycles
-    temp = _attr_raw(table, "temperature_celsius") or _attr_raw(table, "temperature")
+    temp = _attr_temperature_c(table)
     if temp is not None:
         raw["temperature_c"] = temp
     lbas_w = (

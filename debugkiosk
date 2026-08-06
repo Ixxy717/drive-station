@@ -2,8 +2,8 @@
 # Black screen / kiosk broken?
 #   sudo debugkiosk
 #
-# Stops kiosk, restores console, writes a dump, and starts a LAN server
-# so another PC (or Cursor) can read it at:
+# Stops kiosk, restores console, writes a dump, and starts a systemd-backed
+# LAN server (survives this script exiting) at:
 #   http://<ip>:2021/kiosk-debug.txt
 set -u
 
@@ -12,8 +12,7 @@ if [[ $EUID -ne 0 ]]; then
     exit 1
 fi
 
-# If the git checkout is newer than this installed copy, refresh + re-exec
-# (so git pull + sudo debugkiosk picks up fixes without stash games).
+# If the git checkout is newer than this installed copy, refresh + re-exec.
 REPO=""
 if [[ -f /etc/drivestation-repo-path ]]; then
     REPO="$(cat /etc/drivestation-repo-path 2>/dev/null || true)"
@@ -35,7 +34,7 @@ if [[ -n "$REPO" && -f "$REPO/debugkiosk" && -f /usr/local/bin/debugkiosk ]]; th
 fi
 
 REPORT=/tmp/ds-kiosk-debug.txt
-SERVE_DIR=/tmp/ds-kiosk-lan
+SERVE_DIR=/var/lib/drivestation-debug-lan
 PUBLISH=""
 if [[ -n "$REPO" ]]; then
     mkdir -p "$REPO/reports"
@@ -96,35 +95,51 @@ fi
 
 [[ -n "$PUBLISH" ]] && cp -f "$REPORT" "$PUBLISH"
 
-# Dedicated LAN server so the dump is fetchable even if drivestation is dead.
+# Publish dump where a real systemd service will serve it (survives sudo exit).
 mkdir -p "$SERVE_DIR"
 cp -f "$REPORT" "$SERVE_DIR/kiosk-debug.txt"
-if [[ -n "$PUBLISH" ]]; then
-    cp -f "$PUBLISH" "$SERVE_DIR/kiosk-debug.txt"
-fi
-# Stop any previous debug LAN server
-if [[ -f /tmp/ds-debug-lan.pid ]]; then
-    kill "$(cat /tmp/ds-debug-lan.pid)" 2>/dev/null || true
-    rm -f /tmp/ds-debug-lan.pid
-fi
-pkill -f 'python3 -m http.server 2021' 2>/dev/null || true
-nohup python3 -m http.server 2021 --bind 0.0.0.0 --directory "$SERVE_DIR" \
-    >/tmp/ds-debug-lan.log 2>&1 &
-echo $! > /tmp/ds-debug-lan.pid
-sleep 0.3
+
+cat > /etc/systemd/system/drivestation-debug-lan.service <<EOF
+[Unit]
+Description=Drive Station kiosk debug dump (LAN :2021)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=$SERVE_DIR
+ExecStart=/usr/bin/python3 -m http.server 2021 --bind 0.0.0.0 --directory $SERVE_DIR
+Restart=always
+RestartSec=1
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable drivestation-debug-lan.service >/dev/null 2>&1 || true
+systemctl restart drivestation-debug-lan.service
+sleep 0.5
 
 IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+OK="NO"
+if curl -fsS -o /dev/null --connect-timeout 2 "http://127.0.0.1:2021/kiosk-debug.txt"; then
+    OK="YES"
+fi
+
 echo
 echo "========================================"
 echo " Kiosk STOPPED. Text console restored."
 echo " Dump: $REPORT"
 echo
-echo " LAN SERVER RUNNING — open from another PC / Cursor:"
+echo " LAN server (systemd — stays up after this exits):"
 echo "   http://${IP:-127.0.0.1}:2021/kiosk-debug.txt"
+echo "   local fetch works: $OK"
+echo "   status: $(systemctl is-active drivestation-debug-lan 2>/dev/null || echo '?')"
 echo
 echo " Also (if drivestation is up):"
 echo "   http://${IP:-127.0.0.1}:8330/api/debug/kiosk"
 echo
 echo " Board: http://${IP:-127.0.0.1}:8330/"
-echo " Later: sudo startkiosk"
+echo " Stop LAN dump later: sudo systemctl stop drivestation-debug-lan"
+echo " Kiosk again later:   sudo startkiosk"
 echo "========================================"

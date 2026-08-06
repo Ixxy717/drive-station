@@ -10,6 +10,24 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 REPORT=/tmp/ds-kiosk-debug.txt
+# Also publish where the board can serve it for remote debugging.
+PUBLISH=""
+for candidate in /home/drivestation/drive-station /root/drive-station; do
+    if [[ -d "$candidate/reports" ]] || [[ -d "$candidate" ]]; then
+        mkdir -p "$candidate/reports"
+        PUBLISH="$candidate/reports/kiosk-debug.txt"
+        break
+    fi
+done
+# Symlink target of this script → repo
+SELF="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")"
+if [[ -z "$PUBLISH" && -d "$(dirname "$SELF")/reports" ]]; then
+    PUBLISH="$(dirname "$SELF")/reports/kiosk-debug.txt"
+elif [[ -z "$PUBLISH" && -d "$(dirname "$SELF")" ]]; then
+    mkdir -p "$(dirname "$SELF")/reports"
+    PUBLISH="$(dirname "$SELF")/reports/kiosk-debug.txt"
+fi
+
 {
     echo "===== drive-station kiosk debug $(date -Iseconds) ====="
     echo
@@ -21,6 +39,10 @@ REPORT=/tmp/ds-kiosk-debug.txt
     systemctl start getty@tty1 2>/dev/null || true
     echo "OK — Ctrl+Alt+F1 for login (F2/F3 also work)."
     echo
+
+    echo "--- ensuring board API is up (so dump is readable on LAN) ---"
+    systemctl start drivestation 2>/dev/null || true
+    sleep 1
 
     echo "--- drivestation app ---"
     systemctl is-active drivestation 2>/dev/null || echo "(not active)"
@@ -58,13 +80,23 @@ REPORT=/tmp/ds-kiosk-debug.txt
     journalctl -u drivestation -n 20 --no-pager 2>&1 || true
 } | tee "$REPORT"
 
+if [[ -n "$PUBLISH" ]]; then
+    cp -f "$REPORT" "$PUBLISH"
+fi
+
+IP=$(hostname -I 2>/dev/null | awk '{print $1}')
 echo
 echo "========================================"
 echo " Kiosk STOPPED. Text console restored."
 echo " Dump saved: $REPORT"
+[[ -n "$PUBLISH" ]] && echo " Also at:    $PUBLISH"
 echo
-echo " Board from phone/PC:"
-echo "   http://$(hostname -I 2>/dev/null | awk '{print $1}'):8330/"
+echo " Readable on the LAN (for remote debug):"
+echo "   http://${IP:-127.0.0.1}:8330/api/debug/kiosk"
+echo "   http://${IP:-127.0.0.1}:8330/files/kiosk-debug.txt"
+echo
+echo " Board:"
+echo "   http://${IP:-127.0.0.1}:8330/"
 echo
 echo " Try screen again later:"
 echo "   sudo startkiosk"

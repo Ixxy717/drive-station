@@ -132,6 +132,26 @@ def state() -> dict:
     }
 
 
+@app.get("/api/debug/kiosk", response_class=PlainTextResponse)
+def kiosk_debug_dump() -> str:
+    """Latest sudo debugkiosk dump — readable from the LAN after a black screen."""
+    candidates = [
+        Path("/tmp/ds-kiosk-debug.txt"),
+        REPORTS_DIR / "kiosk-debug.txt",
+        REPO_ROOT / "reports" / "kiosk-debug.txt",
+    ]
+    for path in candidates:
+        try:
+            if path.is_file():
+                return path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+    raise HTTPException(
+        status_code=404,
+        detail="No debug dump yet — run: sudo debugkiosk",
+    )
+
+
 @app.get("/api/config")
 def config() -> dict:
     return {"org": ORG, "sim_mode": MODE != "real", "batch": station.batch}

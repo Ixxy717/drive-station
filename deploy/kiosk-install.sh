@@ -19,7 +19,8 @@ fi
 echo "Refreshing apt indexes (avoids stale trixie-security 404s)..."
 apt-get update
 
-echo "Installing cage + chromium..."
+echo "Installing cage + chromium + curl..."
+apt-get install -y curl || true
 if ! apt-get install -y cage chromium; then
     echo "chromium package failed — trying firefox-esr as the kiosk browser..."
     apt-get install -y cage firefox-esr

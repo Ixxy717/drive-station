@@ -19,7 +19,7 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Remember where the checkout lives so debugkiosk can refresh itself after pull.
 echo "$REPO" > /etc/drivestation-repo-path
 
-for cmd in debugkiosk fixkiosk startkiosk; do
+for cmd in debugkiosk fixkiosk startkiosk fixstation; do
     if [[ ! -f "$REPO/$cmd" ]]; then
         echo "missing $REPO/$cmd" >&2
         exit 1
@@ -34,6 +34,7 @@ echo "Done. From anywhere (no cd):"
 echo "  sudo debugkiosk   # black screen → dump + LAN server + console back"
 echo "  sudo fixkiosk     # just turn kiosk off"
 echo "  sudo startkiosk   # turn kiosk back on"
+echo "  sudo fixstation   # install uvicorn/curl + restart board"
 echo
 echo "After every git pull, refresh the commands once:"
 echo "  sudo bash $REPO/deploy/install-commands.sh"

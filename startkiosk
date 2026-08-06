@@ -36,38 +36,46 @@ if ! command -v cage >/dev/null; then
     exit 1
 fi
 
+# Wait without curl (kiosk user often has no curl → endless loop → black screen).
+WAIT_BOARD='wait_board() {
+  local url="$1" i
+  for i in $(seq 1 60); do
+    if python3 -c "import urllib.request; urllib.request.urlopen(\"$url\", timeout=2)" 2>/dev/null; then
+      return 0
+    fi
+    echo "waiting for board ($i)..."
+    sleep 2
+  done
+  return 0
+}'
+
 if command -v chromium >/dev/null; then
-    cat > /usr/local/bin/drivestation-kiosk <<"EOF"
+    cat > /usr/local/bin/drivestation-kiosk <<EOF
 #!/usr/bin/env bash
 GRADE_URL="http://127.0.0.1:8330/"
 LOG=/tmp/drivestation-kiosk-browser.log
-exec > >(tee -a "$LOG") 2>&1
-echo "=== kiosk browser start $(date -Iseconds) ==="
-for _ in $(seq 1 60); do
-    curl -fsS -o /dev/null "$GRADE_URL" && break
-    echo "waiting for board..."
-    sleep 2
-done
-exec chromium \
-    --start-fullscreen \
-    --incognito \
-    --noerrdialogs \
-    --disable-infobars \
-    --disable-session-crashed-bubble \
-    --check-for-update-interval=31536000 \
-    --enable-features=UseOzonePlatform \
-    --ozone-platform=wayland \
-    "$GRADE_URL"
+exec > >(tee -a "\$LOG") 2>&1
+echo "=== kiosk browser start \$(date -Iseconds) ==="
+$WAIT_BOARD
+wait_board "\$GRADE_URL"
+exec chromium \\
+    --start-fullscreen \\
+    --incognito \\
+    --noerrdialogs \\
+    --disable-infobars \\
+    --disable-session-crashed-bubble \\
+    --check-for-update-interval=31536000 \\
+    --enable-features=UseOzonePlatform \\
+    --ozone-platform=wayland \\
+    "\$GRADE_URL"
 EOF
 elif command -v firefox-esr >/dev/null; then
-    cat > /usr/local/bin/drivestation-kiosk <<"EOF"
+    cat > /usr/local/bin/drivestation-kiosk <<EOF
 #!/usr/bin/env bash
 GRADE_URL="http://127.0.0.1:8330/"
-for _ in $(seq 1 60); do
-    curl -fsS -o /dev/null "$GRADE_URL" && break
-    sleep 2
-done
-exec firefox-esr --kiosk "$GRADE_URL"
+$WAIT_BOARD
+wait_board "\$GRADE_URL"
+exec firefox-esr --kiosk "\$GRADE_URL"
 EOF
 else
     echo "No browser. Run: sudo bash ${REPO:-~/drive-station}/deploy/kiosk-install.sh"

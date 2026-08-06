@@ -26,6 +26,11 @@ if [[ ! -f "$REPO/config/slots.toml" ]]; then
     exit 1
 fi
 
+# Board deps (system python used by the service).
+python3 -m pip install -r "$REPO/requirements.txt" --break-system-packages \
+    || pip3 install -r "$REPO/requirements.txt" --break-system-packages \
+    || true
+
 sed -e "s|@REPO@|$REPO|g" -e "s|@PY@|$PY|g" \
     "$REPO/deploy/drivestation.service" \
     > /etc/systemd/system/drivestation.service

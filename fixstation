@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+# Fix the usual "board won't start / black kiosk" breakage.
+#   sudo fixstation
+set -u
+
+if [[ $EUID -ne 0 ]]; then
+    echo "Run: sudo fixstation" >&2
+    exit 1
+fi
+
+REPO=""
+if [[ -f /etc/drivestation-repo-path ]]; then
+    REPO="$(cat /etc/drivestation-repo-path 2>/dev/null || true)"
+fi
+if [[ -z "$REPO" || ! -d "$REPO" ]]; then
+    for candidate in /home/drivestation/drive-station /root/drive-station; do
+        [[ -f "$candidate/run.py" ]] && REPO="$candidate" && break
+    done
+fi
+if [[ -z "$REPO" ]]; then
+    echo "Can't find drive-station checkout." >&2
+    exit 1
+fi
+
+echo "Repo: $REPO"
+echo "--- apt: curl (kiosk wait) + python deps ---"
+apt-get update -qq
+apt-get install -y curl python3-pip python3-venv 2>/dev/null || apt-get install -y curl python3-pip
+
+echo "--- pip install requirements ---"
+python3 -m pip install -r "$REPO/requirements.txt" --break-system-packages
+
+echo "--- refresh PATH commands ---"
+bash "$REPO/deploy/install-commands.sh"
+
+echo "--- rewrite service + restart board ---"
+bash "$REPO/deploy/install.sh"
+
+echo "--- rewrite kiosk launcher (no curl — uses python3 wait) ---"
+cat > /usr/local/bin/drivestation-kiosk <<"EOF"
+#!/usr/bin/env bash
+GRADE_URL="http://127.0.0.1:8330/"
+LOG=/tmp/drivestation-kiosk-browser.log
+exec > >(tee -a "$LOG") 2>&1
+echo "=== kiosk browser start $(date -Iseconds) ==="
+for i in $(seq 1 60); do
+  if python3 -c "import urllib.request; urllib.request.urlopen('$GRADE_URL', timeout=2)" 2>/dev/null; then
+    break
+  fi
+  echo "waiting for board ($i)..."
+  sleep 2
+done
+if command -v chromium >/dev/null; then
+  exec chromium --start-fullscreen --incognito --noerrdialogs \
+    --disable-infobars --disable-session-crashed-bubble \
+    --check-for-update-interval=31536000 \
+    --enable-features=UseOzonePlatform --ozone-platform=wayland \
+    "$GRADE_URL"
+fi
+exec firefox-esr --kiosk "$GRADE_URL"
+EOF
+chmod +x /usr/local/bin/drivestation-kiosk
+
+systemctl stop drivestation-kiosk 2>/dev/null || true
+systemctl disable drivestation-kiosk 2>/dev/null || true
+systemctl enable getty@tty1 2>/dev/null || true
+systemctl start getty@tty1 2>/dev/null || true
+
+sleep 1
+code=$(curl -sS -o /dev/null -w "%{http_code}" --connect-timeout 3 http://127.0.0.1:8330/ 2>/dev/null || echo FAIL)
+IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+echo
+echo "========================================"
+echo " Board HTTP: $code"
+echo " Open: http://${IP:-127.0.0.1}:8330/"
+echo " Screen later: sudo startkiosk"
+echo "========================================"

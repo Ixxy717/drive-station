@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from typing import Optional
 
 from .db import JobLog
@@ -14,6 +15,38 @@ from .models import (LARGE_NVME_QUEUE_BYTES, SLOT_LAYOUT, WIPE_ONLY_SLOTS,
 from .wipe.methods import choose_method
 
 log = logging.getLogger("drivestation")
+
+
+def _usage_looks_clean(usage: Optional[UsageSnapshot]) -> bool:
+    if usage is None:
+        return False
+    if usage.has_partitions:
+        return False
+    if usage.used_bytes is not None and usage.used_bytes > 0:
+        return False
+    label = (usage.label or "").lower()
+    if "data present" in label or "unreadable" in label:
+        return False
+    return "empty" in label or usage.used_bytes == 0
+
+
+def _prior_wipe_info(jobs: list[dict],
+                     usage: Optional[UsageSnapshot]) -> Optional[dict]:
+    if not jobs:
+        return None
+    last = jobs[0]
+    last_pass = next((j for j in jobs if j.get("result") == "PASSED"), None)
+    still_clean = bool(last_pass and _usage_looks_clean(usage))
+    src = last_pass or last
+    return {
+        "result": src.get("result"),
+        "finished_at": src.get("wipe_finished_at") or src.get("created_at"),
+        "method": src.get("wipe_method"),
+        "slot": src.get("slot"),
+        "still_clean": still_clean,
+        "had_passed": last_pass is not None,
+        "last_result": last.get("result"),
+    }
 
 
 class Station:
@@ -80,10 +113,14 @@ class Station:
             slot.health = None
             slot.usage = None
             slot.progress = 0.0
+            slot.wipe_elapsed_s = None
+            slot.wipe_eta_s = None
+            slot.wipe_bps = None
             slot.message = ""
             slot.awaiting_confirm = False
             slot.wipe_method = None
             slot.queued_from = None
+            slot.prior_wipe = None
         threading.Thread(target=self._check, args=(slot_id, gen),
                          name=f"check-{slot_id}", daemon=True).start()
 
@@ -110,10 +147,14 @@ class Station:
                 slot.health = None
                 slot.usage = None
                 slot.progress = 0.0
+                slot.wipe_elapsed_s = None
+                slot.wipe_eta_s = None
+                slot.wipe_bps = None
                 slot.message = ""
                 slot.awaiting_confirm = False
                 slot.wipe_method = None
                 slot.queued_from = None
+                slot.prior_wipe = None
 
     # -- health check --------------------------------------------------------
 
@@ -157,6 +198,9 @@ class Station:
             except HardwareError:
                 pass
 
+            prior = _prior_wipe_info(
+                self.joblog.by_serial(info.serial), usage)
+
             auto_start = False
             with self._lock:
                 if self._check_gen.get(slot_id) != gen:
@@ -165,21 +209,46 @@ class Station:
                 slot.health = health
                 slot.usage = usage
                 slot.wipe_method = planned
+                slot.prior_wipe = prior
                 queued_from = self._pending_wipes.get(info.serial.casefold())
                 slot.queued_from = queued_from
                 msgs: list[str] = []
                 if queued_from and slot.wipe_only:
                     # Queued from a grading dock → start wipe immediately.
-                    slot.status = SlotStatus.READY
-                    slot.awaiting_confirm = False
-                    msgs.append(f"Queued wipe from {queued_from} — starting")
-                    if health.verdict == HealthVerdict.UNKNOWN:
-                        msgs.append("health not graded on this dock")
-                    slot.message = " · ".join(msgs)
-                    auto_start = True
+                    # Skip auto-start when a prior PASSED wipe still looks clean
+                    # (operator can still press WIPE).
+                    if prior and prior.get("still_clean"):
+                        slot.status = SlotStatus.READY
+                        slot.awaiting_confirm = True
+                        when = (prior.get("finished_at") or "")[:10]
+                        msgs.append(
+                            f"Already wiped PASSED {when} — still empty"
+                        )
+                        msgs.append(f"was queued from {queued_from}")
+                        slot.message = " · ".join(msgs)
+                    else:
+                        slot.status = SlotStatus.READY
+                        slot.awaiting_confirm = False
+                        msgs.append(f"Queued wipe from {queued_from} — starting")
+                        if health.verdict == HealthVerdict.UNKNOWN:
+                            msgs.append("health not graded on this dock")
+                        slot.message = " · ".join(msgs)
+                        auto_start = True
                 else:
                     slot.status = SlotStatus.READY
                     slot.awaiting_confirm = True
+                    if prior and prior.get("still_clean"):
+                        when = (prior.get("finished_at") or "")[:10]
+                        msgs.append(
+                            f"Already wiped PASSED {when} — still empty"
+                        )
+                    elif prior and prior.get("had_passed"):
+                        when = (prior.get("finished_at") or "")[:10]
+                        msgs.append(
+                            f"Previously wiped {when} but data present — rewipe"
+                        )
+                    elif prior and prior.get("last_result") == "FAILED":
+                        msgs.append("Last wipe FAILED — needs a clean pass")
                     if (not slot.wipe_only
                             and info.drive_type == DriveType.NVME
                             and info.capacity_bytes >= LARGE_NVME_QUEUE_BYTES):
@@ -288,7 +357,7 @@ class Station:
                          name=f"wipe-{slot_id}", daemon=True).start()
 
     def decline_wipe(self, slot_id: str) -> None:
-        """Operator pressed NO. Clears a pending queue entry for this serial."""
+        """Operator pressed NO/DONE. Clears a pending queue entry for this serial."""
         with self._lock:
             slot = self.slots[slot_id]
             if slot.status == SlotStatus.READY:
@@ -296,7 +365,10 @@ class Station:
                     self._dequeue_serial(slot.drive.serial)
                 slot.awaiting_confirm = False
                 slot.queued_from = None
-                slot.message = "Not wiped — remove drive"
+                if slot.prior_wipe and slot.prior_wipe.get("still_clean"):
+                    slot.message = "Prior wipe still good — remove drive"
+                else:
+                    slot.message = "Not wiped — remove drive"
 
     def pending_wipes(self) -> list[dict]:
         with self._lock:
@@ -315,8 +387,30 @@ class Station:
         if job_id is not None:
             self.joblog.finish_job(job_id, "FAILED", error)
         with self._lock:
+            # One queue entry = one wipe attempt. Failures need a manual retry
+            # (or re-queue) so service restarts don't loop auto-wipes.
+            if slot.drive is not None:
+                self._dequeue_serial(slot.drive.serial)
+            slot.queued_from = None
             slot.status = status
             slot.message = message
+            slot.wipe_eta_s = None
+
+    def _set_phase_progress(self, slot: SlotState, frac: float, t0: float,
+                            capacity_bytes: int) -> None:
+        elapsed = max(0.0, time.monotonic() - t0)
+        eta: Optional[float] = None
+        bps: Optional[float] = None
+        if frac > 0.02 and elapsed >= 0.75 and capacity_bytes > 0:
+            done = frac * capacity_bytes
+            bps = done / elapsed
+            if frac < 0.999 and bps > 0:
+                eta = (1.0 - frac) * capacity_bytes / bps
+        with self._lock:
+            slot.progress = frac
+            slot.wipe_elapsed_s = elapsed
+            slot.wipe_eta_s = eta
+            slot.wipe_bps = bps
 
     def _wipe_job(self, slot_id: str, bound: DriveInfo) -> None:
         slot = self.slots[slot_id]
@@ -363,15 +457,20 @@ class Station:
                 used_bytes_before=usage.used_bytes if usage else None,
                 usage_label=usage.label if usage else None)
 
+            cap = bound.capacity_bytes or 0
             with self._lock:
                 slot.status = SlotStatus.WIPING
                 slot.wipe_method = method
                 slot.progress = 0.0
+                slot.wipe_elapsed_s = 0.0
+                slot.wipe_eta_s = None
+                slot.wipe_bps = None
                 slot.message = ""
 
+            wipe_t0 = time.monotonic()
+
             def wipe_progress(frac: float) -> None:
-                with self._lock:
-                    slot.progress = frac
+                self._set_phase_progress(slot, frac, wipe_t0, cap)
 
             self.backend.wipe(slot_id, method, wipe_progress)
 
@@ -381,10 +480,14 @@ class Station:
                     raise DriveDisconnected("state changed during wipe")
                 slot.status = SlotStatus.VERIFYING
                 slot.progress = 0.0
+                slot.wipe_elapsed_s = 0.0
+                slot.wipe_eta_s = None
+                slot.wipe_bps = None
+
+            verify_t0 = time.monotonic()
 
             def verify_progress(frac: float) -> None:
-                with self._lock:
-                    slot.progress = frac
+                self._set_phase_progress(slot, frac, verify_t0, cap)
 
             self.backend.verify(slot_id, method, verify_progress)
 
@@ -403,6 +506,7 @@ class Station:
                 slot.queued_from = None
                 slot.status = SlotStatus.PASSED
                 slot.progress = 1.0
+                slot.wipe_eta_s = 0.0
                 slot.message = (
                     f"Wiped and verified — listing /d/{bound.serial}"
                 )

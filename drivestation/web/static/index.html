@@ -173,6 +173,12 @@
     color: var(--muted); text-transform: uppercase; margin-bottom: 3px;
   }
   .prog .pct { font-size: 16px; font-weight: 700; color: var(--ink); }
+  .prog .meta {
+    display: flex; justify-content: space-between; gap: 8px;
+    font-size: 10px; font-weight: 600; color: var(--ink);
+    margin-bottom: 3px; font-variant-numeric: tabular-nums;
+  }
+  .prog .meta span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .prog .bar { height: 5px; background: #dddddad9; }
   .prog .bar > div { height: 100%; background: var(--work); transition: width .4s linear; }
 
@@ -390,17 +396,28 @@ function tileHTML(s, busyByGroup) {
 
   if (s.status === "WIPING" || s.status === "VERIFYING") {
     const pct = Math.round(s.progress * 100);
+    const elapsed = fmtDuration(s.wipe_elapsed_s);
+    const eta = (s.wipe_eta_s == null) ? "—" : fmtDuration(s.wipe_eta_s);
+    const rate = fmtRate(s.wipe_bps);
     body += `<div class="prog">
         <div class="lbl"><span>${s.status === "WIPING" ? "Wipe" : "Verify"}</span>
         <span class="pct num">${pct}%</span></div>
+        <div class="meta num"><span>${elapsed} elapsed</span><span>${rate}</span><span>ETA ${eta}</span></div>
         <div class="bar"><div style="width:${pct}%"></div></div>
       </div>`;
   }
 
   let ask = "";
   if (s.status === "READY" && s.awaiting_confirm) {
+    const prior = s.prior_wipe || null;
+    const alreadyClean = prior && prior.still_clean;
     let dataQ;
-    if (s.queued_from && s.wipe_only) {
+    if (alreadyClean) {
+      const when = (prior.finished_at || "").slice(0, 10) || "earlier";
+      dataQ = `Already wiped PASSED ${when} — still empty. Done, or rewipe?`;
+    } else if (prior && prior.had_passed) {
+      dataQ = "Previously wiped but data present — rewipe?";
+    } else if (s.queued_from && s.wipe_only) {
       dataQ = `Queued from ${s.queued_from} — wipe now?`;
     } else if (largeNvme && !s.wipe_only) {
       dataQ = "≥1TB NVMe — send to WIPE ONLY dock?";
@@ -410,18 +427,23 @@ function tileHTML(s, busyByGroup) {
       dataQ = "Secure wipe this drive?";
     }
     const buttons = [];
-    if (s.wipe_only) {
+    if (alreadyClean) {
+      buttons.push(`<button type="button" class="act yes" data-action="decline" data-slot="${s.slot_id}">DONE</button>`);
+      buttons.push(`<button type="button" class="act yes secondary" data-action="wipe" data-slot="${s.slot_id}">REWIPE</button>`);
+    } else if (s.wipe_only) {
       buttons.push(`<button type="button" class="act yes" data-action="wipe" data-slot="${s.slot_id}">WIPE</button>`);
+      buttons.push(`<button type="button" class="act no" data-action="decline" data-slot="${s.slot_id}">SKIP</button>`);
     } else if (largeNvme) {
       buttons.push(`<button type="button" class="act yes" data-action="wipe" data-slot="${s.slot_id}">QUEUE</button>`);
       buttons.push(`<button type="button" class="act yes secondary" data-action="wipe-here" data-slot="${s.slot_id}">WIPE HERE</button>`);
+      buttons.push(`<button type="button" class="act no" data-action="decline" data-slot="${s.slot_id}">SKIP</button>`);
     } else {
       buttons.push(`<button type="button" class="act yes" data-action="wipe" data-slot="${s.slot_id}">WIPE</button>`);
       if (d && d.drive_type === "NVME") {
         buttons.push(`<button type="button" class="act yes secondary" data-action="queue" data-slot="${s.slot_id}">TO WIPE DOCK</button>`);
       }
+      buttons.push(`<button type="button" class="act no" data-action="decline" data-slot="${s.slot_id}">SKIP</button>`);
     }
-    buttons.push(`<button type="button" class="act no" data-action="decline" data-slot="${s.slot_id}">SKIP</button>`);
     ask = `<div class="ask"><div class="q">${dataQ}</div>
       <div class="buttons">${buttons.join("")}</div></div>`;
   }
@@ -475,17 +497,41 @@ function tick() {
 }
 setInterval(tick, 1000); tick();
 
+function fmtDuration(sec) {
+  if (sec == null || !isFinite(sec)) return "—";
+  const s = Math.max(0, Math.round(sec));
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  if (m >= 60) {
+    const h = Math.floor(m / 60);
+    return `${h}h ${m % 60}m`;
+  }
+  return m > 0 ? `${m}m ${String(r).padStart(2, "0")}s` : `${r}s`;
+}
+function fmtRate(bps) {
+  if (bps == null || !isFinite(bps) || bps <= 0) return "—";
+  const gb = bps / 1e9;
+  if (gb >= 1) return `${gb.toFixed(2)} GB/s`;
+  const mb = bps / 1e6;
+  if (mb >= 1) return `${mb.toFixed(0)} MB/s`;
+  return `${(bps / 1e3).toFixed(0)} KB/s`;
+}
+
 function boardSignature(data) {
   const q = (data.pending_wipes || [])
     .map(p => `${p.serial}@${p.from_slot}`).join(",");
   const slots = (data.slots || []).map(s => {
     const d = s.drive || {};
     const h = s.health || {};
+    const pw = s.prior_wipe || {};
     return [
       s.slot_id, s.status, s.awaiting_confirm ? 1 : 0,
       Math.round((s.progress || 0) * 100), s.message || "",
       d.serial || "", h.verdict || "", h.percent ?? "",
       s.queued_from || "", s.wipe_method || "",
+      Math.floor(s.wipe_elapsed_s || 0),
+      Math.floor(s.wipe_bps || 0),
+      pw.result || "", pw.still_clean ? 1 : 0,
     ].join("|");
   }).join(";");
   return q + "::" + slots;

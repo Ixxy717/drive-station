@@ -121,6 +121,8 @@ def zero_overwrite(
         else:
             raise WipeError(f"dd failed (exit {rc}): {err_tail}")
     progress(1.0)
+    # Give USB bridges a moment before verify opens the device again.
+    time.sleep(1.0)
 
 
 _FS_MAGICS = (
@@ -205,10 +207,26 @@ def verify_zeros(
             uniq.append(off)
     offsets = uniq
 
-    try:
-        fd = os.open(dev_path, os.O_RDONLY)
-    except OSError as exc:
-        raise VerifyError(f"open failed: {exc}") from exc
+    fd = None
+    last_open: Optional[OSError] = None
+    for _ in range(5):
+        try:
+            fd = os.open(dev_path, os.O_RDONLY)
+            last_open = None
+            break
+        except OSError as exc:
+            last_open = exc
+            # ENXIO/ENODEV right after a USB rewrite — brief settle + retry.
+            if exc.errno in (5, 6, 19):
+                time.sleep(0.8)
+                continue
+            raise VerifyError(f"open failed: {exc}") from exc
+    if fd is None:
+        assert last_open is not None
+        if last_open.errno in (6, 19):
+            raise DriveDisconnected(
+                f"{dev_path} missing during verify: {last_open}")
+        raise VerifyError(f"open failed: {last_open}") from last_open
 
     try:
         for i, off in enumerate(offsets):

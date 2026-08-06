@@ -129,13 +129,31 @@ class LinuxBackend(HardwareBackend):
             raise DriveDisconnected(f"No drive present in {slot_id}")
         return path
 
+    def _refresh_dev(self, slot_id: str) -> str:
+        """Re-resolve /dev path from ID_PATH (USB bridges renumber after wipe)."""
+        found = scan_allowlisted(self._path_to_slot, self._run)
+        cur = found.get(slot_id)
+        if cur is None or cur.size_bytes <= 0:
+            raise DriveDisconnected(f"No drive present in {slot_id}")
+        with self._lock:
+            self._present[slot_id] = cur
+            self._dev_by_slot[slot_id] = cur.path
+        return cur.path
+
     def _slot_cfg(self, slot_id: str) -> SlotConfig:
         return self.slots[slot_id]
 
     def _still_present(self, slot_id: str, dev_path: str) -> bool:
         found = scan_allowlisted(self._path_to_slot, self._run)
         cur = found.get(slot_id)
-        return cur is not None and cur.path == dev_path and cur.size_bytes > 0
+        if cur is None or cur.size_bytes <= 0:
+            return False
+        with self._lock:
+            self._present[slot_id] = cur
+            self._dev_by_slot[slot_id] = cur.path
+        # Path may change after a USB re-enumerate; slot match is enough.
+        # Active dd still targets the original path until it exits.
+        return True
 
     def read_identity(self, slot_id: str) -> Optional[DriveInfo]:
         path = self._require_dev(slot_id)
@@ -214,7 +232,21 @@ class LinuxBackend(HardwareBackend):
 
     def verify(self, slot_id: str, method: WipeMethod,
                progress: ProgressCallback) -> None:
-        path = self._require_dev(slot_id)
+        # Full overwrite often resets USB mass-storage — wait and re-resolve
+        # the /dev node before opening for verify (avoids false ENXIO fails).
+        path = None
+        last: Optional[Exception] = None
+        for attempt in range(8):
+            try:
+                if attempt:
+                    time.sleep(0.75)
+                path = self._refresh_dev(slot_id)
+                break
+            except DriveDisconnected as exc:
+                last = exc
+        if path is None:
+            raise last or DriveDisconnected(f"No drive present in {slot_id}")
+
         if method == WipeMethod.ZERO_OVERWRITE:
             verify_zeros(path, progress, self._run)
             return

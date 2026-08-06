@@ -95,12 +95,18 @@ class SlotState:
     health: Optional[HealthResult] = None
     usage: Optional[UsageSnapshot] = None
     progress: float = 0.0
+    # Live wipe/verify telemetry (seconds / bytes-per-second).
+    wipe_elapsed_s: Optional[float] = None
+    wipe_eta_s: Optional[float] = None
+    wipe_bps: Optional[float] = None
     message: str = ""
     awaiting_confirm: bool = False
     wipe_method: Optional[WipeMethod] = None
     wipe_only: bool = False
     # Serial was queued on a grading dock (e.g. StarTech) for wipe here.
     queued_from: Optional[str] = None
+    # Latest prior job for this serial (board "already wiped?" cue).
+    prior_wipe: Optional[dict] = None
 
     def _health_dict(self) -> dict:
         # Late import — policy imports DriveInfo from this module.
@@ -129,11 +135,24 @@ class SlotState:
             "health": None if self.health is None else self._health_dict(),
             "usage": None if self.usage is None else self.usage.to_dict(),
             "progress": round(self.progress, 3),
+            "wipe_elapsed_s": (
+                None if self.wipe_elapsed_s is None
+                else round(self.wipe_elapsed_s, 1)
+            ),
+            "wipe_eta_s": (
+                None if self.wipe_eta_s is None
+                else round(self.wipe_eta_s, 1)
+            ),
+            "wipe_bps": (
+                None if self.wipe_bps is None
+                else round(self.wipe_bps, 0)
+            ),
             "message": self.message,
             "awaiting_confirm": self.awaiting_confirm,
             "wipe_method": self.wipe_method.value if self.wipe_method else None,
             "wipe_only": self.wipe_only,
             "queued_from": self.queued_from,
+            "prior_wipe": self.prior_wipe,
         }
 
 

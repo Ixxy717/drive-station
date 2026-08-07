@@ -1,15 +1,13 @@
 # Slot ↔ USB path map. Names match the physical docks on the bench.
 #
 #   NVME-A1 / B1  = StarTech single-bay NVMe toasters (grade)
-#   SATA-1 / 2    = Sabrent dual 2.5"/3.5" SATA
+#   SATA-1..4     = StarTech SDOCK4U313 4-bay SATA (replaces Sabrent dual)
 #   M2-1          = M.2 dock
 #   SUITOK-1..4   = SUITOK wipe-only NVMe
-#   QUAD-1..4     = StarTech 4-bay SATA (not on hub yet)
 #
 # Remap helpers (on the mini PC):
-#   sudo tools/dock_characterize.sh          # guided (skips unmapped QUAD)
-#   sudo tools/dock_characterize.sh --dual   # Sabrent → SATA-1/2
-#   sudo tools/dock_characterize.sh --quad   # StarTech 4-bay → QUAD-1..4
+#   sudo tools/dock_characterize.sh          # guided (one bay at a time)
+#   sudo tools/dock_characterize.sh --quad   # StarTech 4-bay → SATA-1..4
 # Override with DRIVESTATION_SLOTS=/path/to/slots.toml
 
 # --- StarTech NVMe toasters (14b0:020d / ASM2362) ---------------------------
@@ -23,19 +21,31 @@ id_path = "pci-0000:00:14.0-usb-0:4.4.4.2:1.0-scsi-0:0:0:0"
 bridge = "asm2362"
 hot_swap = true
 
-# --- Sabrent dual 2.5"/3.5" SATA (ASMedia 174c:55aa) -----------------------
-# LUN :0 / :1 — one-at-a-time characterize saw only LUN0; keep dual LUN split.
+# --- StarTech SDOCK4U313 4-bay SATA (hot-swap) ------------------------------
+# Paths filled by: sudo tools/dock_characterize.sh --quad
 [slots.SATA-1]
-id_path = "pci-0000:00:14.0-usb-0:4.4.4.4:1.0-scsi-0:0:0:0"
+id_path = "UNMAPPED-SATA-1"
 bridge = "asmedia_sata"
-hot_swap = false
-shared_power_group = "SABRENT SATA"
+hot_swap = true
+shared_power_group = "STARTECH SATA"
 
 [slots.SATA-2]
-id_path = "pci-0000:00:14.0-usb-0:4.4.4.4:1.0-scsi-0:0:0:1"
+id_path = "UNMAPPED-SATA-2"
 bridge = "asmedia_sata"
-hot_swap = false
-shared_power_group = "SABRENT SATA"
+hot_swap = true
+shared_power_group = "STARTECH SATA"
+
+[slots.SATA-3]
+id_path = "UNMAPPED-SATA-3"
+bridge = "asmedia_sata"
+hot_swap = true
+shared_power_group = "STARTECH SATA"
+
+[slots.SATA-4]
+id_path = "UNMAPPED-SATA-4"
+bridge = "asmedia_sata"
+hot_swap = true
+shared_power_group = "STARTECH SATA"
 
 # --- M.2 dock (RTL9220DP) --------------------------------------------------
 [slots.M2-1]
@@ -64,28 +74,3 @@ hot_swap = true
 id_path = "pci-0000:00:14.0-usb-0:4.4.2.2:1.0-scsi-0:0:0:0"
 bridge = "rtl9210"
 hot_swap = true
-
-# --- StarTech SDOCK4U313 4-bay — plug in hub, then --quad ------------------
-[slots.QUAD-1]
-id_path = "UNMAPPED-QUAD-1"
-bridge = "asmedia_sata"
-hot_swap = true
-shared_power_group = "STARTECH 4BAY"
-
-[slots.QUAD-2]
-id_path = "UNMAPPED-QUAD-2"
-bridge = "asmedia_sata"
-hot_swap = true
-shared_power_group = "STARTECH 4BAY"
-
-[slots.QUAD-3]
-id_path = "UNMAPPED-QUAD-3"
-bridge = "asmedia_sata"
-hot_swap = true
-shared_power_group = "STARTECH 4BAY"
-
-[slots.QUAD-4]
-id_path = "UNMAPPED-QUAD-4"
-bridge = "asmedia_sata"
-hot_swap = true
-shared_power_group = "STARTECH 4BAY"

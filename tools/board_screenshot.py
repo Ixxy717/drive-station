@@ -62,6 +62,8 @@ def main() -> int:
             ("NVME-B1", "worn_nvme"),
             ("SATA-1", "healthy_ssd"),
             ("SATA-2", "healthy_hdd"),
+            ("SATA-3", "healthy_ssd"),
+            ("SATA-4", "warning_hdd"),
             ("M2-1", "healthy_ssd"),
             ("SUITOK-1", "healthy_nvme"),
             ("SUITOK-2", "healthy_nvme"),

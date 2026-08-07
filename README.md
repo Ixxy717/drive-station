@@ -2,9 +2,9 @@
 
 Drive testing and secure-wiping station for an electronics recycling / ITAD bench.
 
-One mini PC + USB docks (StarTech 4-bay + older 2-bay SATA + 2× StarTech NVMe
-toasters + 2× SUITOK dual NVMe + 1× M.2) = a 13-slot appliance. Operators insert
-drives, look at the screen, click YES/NO, and remove finished drives.
+One mini PC + USB docks (StarTech 4-bay SATA + 2× StarTech NVMe toasters +
+2× SUITOK dual NVMe + 1× M.2) = an 11-slot appliance. Operators insert drives,
+look at the screen, click YES/NO, and remove finished drives.
 
 ## Roadmap
 
@@ -26,7 +26,7 @@ drives, look at the screen, click YES/NO, and remove finished drives.
 
 - **Slot mapping**: every physical dock slot has a permanent name (`SATA-1`,
   `NVME-A1`, `M2-1`, ...). On Linux, slots are identified by the USB `ID_PATH`
-  (including SCSI LUN for the dual SATA dock), never by `/dev/sdX` names.
+  (including SCSI LUN when a dock exposes multiple bays), never by `/dev/sdX` names.
   Devices not listed in `config/slots.toml` are ignored.
 - **Simulator mode**: on Windows (or anywhere without the real docks) the app
   runs against fake docks and fake drives, including injectable faults.
@@ -176,8 +176,7 @@ After every wipe it **verifies**:
 
 | Dock | Method |
 |------|--------|
-| SATA-1 / SATA-2 (Sabrent dual) | ATA enhanced when not frozen; else zero overwrite; **not** hot-swap |
-| QUAD-1…4 (StarTech 4-bay) | Same ATA / overwrite; hot-swap when on the hub |
+| SATA-1…4 (StarTech 4-bay) | ATA enhanced when not frozen; else zero overwrite; **hot-swap** |
 | NVME-A1 / NVME-B1 (StarTech) | Zero overwrite; SMART wear via `-d sntasmedia` |
 | SUITOK-1…4 | Zero overwrite; wear often UNKNOWN |
 | M2-1 SATA media (RTL9220) | ATA enhanced when available; else overwrite |
@@ -188,22 +187,18 @@ After every wipe it **verifies**:
 | Slots | Hardware | Bridge |
 |-------|----------|--------|
 | `NVME-A1`, `NVME-B1` | StarTech NVMe toasters (grade — real wear %) | `asm2362` |
-| `SATA-1`, `SATA-2` | Sabrent dual 2.5"/3.5" SATA | `asmedia_sata` |
+| `SATA-1`…`4` | StarTech SDOCK4U313 4-bay SATA (replaced Sabrent) | `asmedia_sata` |
 | `M2-1` | M.2 dock | `rtl9220` |
 | `SUITOK-1`…`4` | SUITOK wipe-only | `rtl9210` (or `rtl9220`) |
-| `QUAD-1`…`4` | StarTech SDOCK4U313 4-bay (optional) | `asmedia_sata` |
 
 ```
 git pull
 sudo systemctl restart drivestation
 
-# Guided remap (skips QUAD — use --quad when that dock is on the hub)
+# Guided remap (one bay at a time)
 sudo tools/dock_characterize.sh
 
-# Sabrent dual → SATA-1/2; leave QUAD empty
-sudo tools/dock_characterize.sh --dual
-
-# StarTech 4-bay → QUAD-1..4; leave Sabrent empty
+# StarTech 4-bay → SATA-1..4 (four different-size drives at once)
 sudo tools/dock_characterize.sh --quad
 ```
 
@@ -217,14 +212,13 @@ sudo smartctl -a -d sntasmedia /dev/sdX
 If `sntasmedia` fails but `sntrealtek` works, set that slot to
 `bridge = "rtl9210"` instead of `asm2362`.
 
-The Sabrent (`SATA-1/2`) is **not** hot-swap: power-cycle that port after
-inserting/removing. StarTech NVMe, SUITOK, M2-1, and QUAD are hot-swap.
+StarTech NVMe, StarTech 4-bay SATA, SUITOK, and M2-1 are hot-swap.
 
 ### Phase 0 tools (already run for this hardware)
 
 ```
 sudo tools/dock_characterize.sh          # per-slot bridge report
-sudo tools/dock_characterize.sh --dual   # Sabrent LUN map (256 vs 512)
+sudo tools/dock_characterize.sh --quad   # StarTech 4-bay → SATA-1..4
 bash tools/serve_reports.sh              # pull reports over LAN :2020
 ```
 

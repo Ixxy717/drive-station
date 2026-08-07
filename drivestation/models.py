@@ -169,16 +169,17 @@ LARGE_NVME_QUEUE_BYTES = 1_000_000_000_000  # 1 TB marketing
 
 # Permanent physical slot identities. On the real station these map to USB
 # port paths via config/slots.toml. Remap after any cable move:
-#   sudo tools/dock_characterize.sh          # guided (skips unmapped QUAD)
-#   sudo tools/dock_characterize.sh --dual   # Sabrent → SATA-1/2
-#   sudo tools/dock_characterize.sh --quad   # StarTech 4-bay → QUAD-1..4
+#   sudo tools/dock_characterize.sh          # guided (one bay at a time)
+#   sudo tools/dock_characterize.sh --quad   # StarTech 4-bay → SATA-1..4
 SLOT_LAYOUT: list[tuple[str, str]] = [
     # StarTech NVMe toasters — grade (real SMART / wear %).
     ("NVME-A1", "NVME GRADE"),
     ("NVME-B1", "NVME GRADE"),
-    # Sabrent dual 2.5"/3.5" SATA — the only "SATA-*" names on the board.
-    ("SATA-1", "SABRENT SATA"),
-    ("SATA-2", "SABRENT SATA"),
+    # StarTech SDOCK4U313 4-bay SATA (replaced Sabrent dual; hot-swap).
+    ("SATA-1", "STARTECH SATA"),
+    ("SATA-2", "STARTECH SATA"),
+    ("SATA-3", "STARTECH SATA"),
+    ("SATA-4", "STARTECH SATA"),
     # M.2 dock (SATA or NVMe in M.2 form factor).
     ("M2-1", "M.2 DOCK"),
     # SUITOK — wipe-only (queued large NVMe / dedicated wipe).
@@ -186,9 +187,4 @@ SLOT_LAYOUT: list[tuple[str, str]] = [
     ("SUITOK-2", "SUITOK"),
     ("SUITOK-3", "SUITOK"),
     ("SUITOK-4", "SUITOK"),
-    # StarTech SDOCK4U313 4-bay — not on the hub yet (characterize with --quad).
-    ("QUAD-1", "STARTECH 4BAY"),
-    ("QUAD-2", "STARTECH 4BAY"),
-    ("QUAD-3", "STARTECH 4BAY"),
-    ("QUAD-4", "STARTECH 4BAY"),
 ]

@@ -9,20 +9,18 @@ from drivestation.models import SLOT_LAYOUT
 def test_default_slots_toml_loads_and_matches_layout():
     slots = load_slots_config()
     assert set(slots) == {s for s, _ in SLOT_LAYOUT}
-    # StarTech NVMe toasters mapped; everything else still UNMAPPED.
+    # StarTech NVMe toasters mapped.
     assert slots["NVME-A1"].id_path.endswith("usb-0:4.4.4.1:1.0-scsi-0:0:0:0")
     assert slots["NVME-B1"].id_path.endswith("usb-0:4.4.4.2:1.0-scsi-0:0:0:0")
     assert slots["NVME-A1"].bridge == "asm2362"
     assert slots["NVME-B1"].bridge == "asm2362"
     assert slots["NVME-A1"].hot_swap is True
-    # Sabrent dual — mapped paths, shared power, not hot-swap.
-    assert slots["SATA-1"].bridge == "asmedia_sata"
-    assert slots["SATA-1"].hot_swap is False
-    assert slots["SATA-1"].shared_power_group == "SABRENT SATA"
-    assert slots["SATA-2"].hot_swap is False
-    assert slots["SATA-2"].shared_power_group == "SABRENT SATA"
-    assert slots["SATA-1"].id_path.endswith("usb-0:4.4.4.4:1.0-scsi-0:0:0:0")
-    assert slots["SATA-2"].id_path.endswith("usb-0:4.4.4.4:1.0-scsi-0:0:0:1")
+    # StarTech 4-bay SATA — hot-swap; paths from --quad after dock is on hub.
+    for sid in ("SATA-1", "SATA-2", "SATA-3", "SATA-4"):
+        assert slots[sid].bridge == "asmedia_sata"
+        assert slots[sid].hot_swap is True
+        assert slots[sid].shared_power_group == "STARTECH SATA"
+        assert slots[sid].id_path.startswith("UNMAPPED-")
     # SUITOK wipe-only (both duals on hub port 4.4.x)
     assert slots["SUITOK-1"].bridge == "rtl9210"
     assert slots["SUITOK-1"].id_path.endswith("usb-0:4.4.3.1:1.0-scsi-0:0:0:0")
@@ -30,9 +28,7 @@ def test_default_slots_toml_loads_and_matches_layout():
     assert slots["SUITOK-3"].id_path.endswith("usb-0:4.4.2.1:1.0-scsi-0:0:0:0")
     assert slots["SUITOK-4"].id_path.endswith("usb-0:4.4.2.2:1.0-scsi-0:0:0:0")
     assert slots["M2-1"].bridge == "rtl9220"
-    # StarTech 4-bay not on hub yet
-    assert slots["QUAD-1"].id_path.startswith("UNMAPPED-")
-    assert slots["QUAD-1"].shared_power_group == "STARTECH 4BAY"
+    assert "QUAD-1" not in slots
 
 
 def test_missing_file_raises(tmp_path: Path):
@@ -46,7 +42,7 @@ def test_mismatch_raises(tmp_path: Path):
 [slots.SATA-1]
 id_path = "pci-x"
 bridge = "asmedia_sata"
-hot_swap = false
+hot_swap = true
 """, encoding="utf-8")
     with pytest.raises(SlotsConfigError, match="mismatch"):
         load_slots_config(p)
@@ -54,8 +50,8 @@ hot_swap = false
 
 def test_duplicate_path_raises(tmp_path: Path):
     lines = ['[slots.SATA-1]', 'id_path = "same"', 'bridge = "asmedia_sata"',
-             'hot_swap = false', '[slots.SATA-2]', 'id_path = "same"',
-             'bridge = "asmedia_sata"', 'hot_swap = false']
+             'hot_swap = true', '[slots.SATA-2]', 'id_path = "same"',
+             'bridge = "asmedia_sata"', 'hot_swap = true']
     # fill remaining required slots with unique paths
     for i, (sid, _) in enumerate(SLOT_LAYOUT):
         if sid in ("SATA-1", "SATA-2"):

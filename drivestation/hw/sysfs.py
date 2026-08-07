@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import threading
 from dataclasses import dataclass
@@ -95,6 +96,46 @@ def udevadm_id_path(dev_path: str, run: RunCmd = default_run_cmd) -> Optional[st
     return None
 
 
+# .../0000:00:14.0/usb2/2-4/.../2-4.4.4.4:1.0/host8/.../8:0:0:0/block/sdX
+# → pci-…-usb-0:4.4.4.4:1.0-scsi-0:0:0:0
+# Some bridges (Sabrent dual on USB3) lack udev ID_* props; synthesize.
+_SYSFS_USB_SCSI = re.compile(
+    r"/(?P<pci>[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-9a-f])/"
+    r".*[0-9]+-(?P<port>[0-9.]+):(?P<iface>[0-9]+\.[0-9]+)/"
+    r"host[0-9]+/target[0-9]+:[0-9]+:[0-9]+/"
+    r"(?P<h>[0-9]+):(?P<c>[0-9]+):(?P<t>[0-9]+):(?P<lun>[0-9]+)/block/",
+    re.I,
+)
+
+
+def id_path_from_devpath(posix_path: str) -> Optional[str]:
+    """Build udev-style ID_PATH from a sysfs DEVPATH / resolved block path."""
+    m = _SYSFS_USB_SCSI.search(posix_path.replace("\\", "/"))
+    if not m:
+        return None
+    # Match udev: USB SCSI ID_PATH uses host 0, keeps C:T:LUN.
+    return (
+        f"pci-{m.group('pci')}-usb-0:{m.group('port')}:{m.group('iface')}"
+        f"-scsi-0:{m.group('c')}:{m.group('t')}:{m.group('lun')}"
+    )
+
+
+def id_path_from_sysfs(dev_name: str) -> Optional[str]:
+    """Build udev-style ID_PATH from /sys/block/<name> when udev omits it."""
+    try:
+        real = Path(f"/sys/block/{dev_name}").resolve()
+    except OSError:
+        return None
+    return id_path_from_devpath(real.as_posix())
+
+
+def resolve_id_path(dev_path: str, run: RunCmd = default_run_cmd) -> str:
+    got = udevadm_id_path(dev_path, run)
+    if got:
+        return got
+    return id_path_from_sysfs(Path(dev_path).name) or ""
+
+
 def list_block_disks(run: RunCmd = default_run_cmd) -> list[BlockDevice]:
     """All disk-type block devices with size and ID_PATH (when available)."""
     code, out, _ = run(["lsblk", "-dbnJo", "NAME,TYPE,SIZE"])
@@ -117,7 +158,7 @@ def list_block_disks(run: RunCmd = default_run_cmd) -> list[BlockDevice]:
             size = int(node.get("size") or 0)
         except (TypeError, ValueError):
             size = 0
-        id_path = udevadm_id_path(path, run) or ""
+        id_path = resolve_id_path(path, run)
         devices.append(BlockDevice(name=name, path=path, size_bytes=size, id_path=id_path))
     return devices
 

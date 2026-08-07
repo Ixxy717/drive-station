@@ -170,9 +170,20 @@ def make_nvme(percentage_used: int = 6, media_errors: int = 0,
     return SimDrive(
         info=DriveInfo("Samsung", "PM9A1", serial or _serial("SIMNV"),
                        capacity_bytes, DriveType.NVME),
-        health_raw={"percentage_used": percentage_used,
-                    "media_errors": media_errors,
-                    "critical_warning": critical_warning},
+        health_raw={
+            "percentage_used": percentage_used,
+            "media_errors": media_errors,
+            "critical_warning": critical_warning,
+            "power_on_hours": 4821,
+            "power_cycles": 612,
+            "data_units_written": 2_450_000,
+            "data_written_label": "1.3 TB",
+            "data_units_read": 1_800_000,
+            "data_read_label": "922 GB",
+            "unsafe_shutdowns": 3,
+            "temperature_c": 38,
+            "available_spare": 100,
+        },
         faults=faults or SimFaults(),
     )
 
@@ -183,7 +194,15 @@ def make_sata_ssd(percent_life: Optional[int] = 92, smart_passed: bool = True,
     return SimDrive(
         info=DriveInfo("Samsung", "870 EVO", serial or _serial("SIMSS"),
                        1_000_000_000_000, DriveType.SATA_SSD),
-        health_raw={"smart_passed": smart_passed, "percent_life": percent_life},
+        health_raw={
+            "smart_passed": smart_passed,
+            "percent_life": percent_life,
+            "power_on_hours": 6709,
+            "power_cycles": 2001,
+            "total_lbas_written": 17_000_000_000,  # ~8.7 TB @ 512B
+            "total_lbas_read": 15_000_000_000,
+            "temperature_c": 31,
+        },
         faults=faults or SimFaults(),
     )
 
@@ -194,9 +213,16 @@ def make_hdd(reallocated: int = 0, pending: int = 0, uncorrectable: int = 0,
     return SimDrive(
         info=DriveInfo("Western Digital", "WD20EZRZ", serial or _serial("SIMHD"),
                        2_000_000_000_000, DriveType.SATA_HDD),
-        health_raw={"smart_passed": smart_passed,
-                    "reallocated_sectors": reallocated,
-                    "pending_sectors": pending,
-                    "uncorrectable_sectors": uncorrectable},
+        health_raw={
+            "smart_passed": smart_passed,
+            "reallocated_sectors": reallocated,
+            "pending_sectors": pending,
+            "uncorrectable_sectors": uncorrectable,
+            "power_on_hours": 12450,
+            "power_cycles": 890,
+            "total_lbas_written": 40_000_000_000,
+            "total_lbas_read": 55_000_000_000,
+            "temperature_c": 36,
+        },
         faults=faults or SimFaults(),
     )

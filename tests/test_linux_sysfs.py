@@ -1,7 +1,7 @@
 import json
 
 from drivestation.hw.slots_config import load_slots_config, path_to_slot
-from drivestation.hw.sysfs import scan_allowlisted
+from drivestation.hw.sysfs import id_path_from_devpath, scan_allowlisted
 
 
 def _make_run(devices: list[dict]):
@@ -67,3 +67,18 @@ def test_ghost_zero_size_excluded():
         {"name": "sdd", "size": 0, "id_path": slots["NVME-A1"].id_path},
     ])
     assert scan_allowlisted(pmap, run) == {}
+
+
+def test_id_path_synthesized_from_sysfs_when_udev_blank():
+    """Sabrent on USB3 sometimes has no ID_PATH props — derive from DEVPATH."""
+    path = (
+        "/sys/devices/pci0000:00/0000:00:14.0/usb2/2-4/2-4.4/2-4.4.4/"
+        "2-4.4.4.4/2-4.4.4.4:1.0/host8/target8:0:0/8:0:0:0/block/sdd"
+    )
+    assert id_path_from_devpath(path) == (
+        "pci-0000:00:14.0-usb-0:4.4.4.4:1.0-scsi-0:0:0:0"
+    )
+    lun1 = path.replace("8:0:0:0", "8:0:0:1")
+    assert id_path_from_devpath(lun1) == (
+        "pci-0000:00:14.0-usb-0:4.4.4.4:1.0-scsi-0:0:0:1"
+    )

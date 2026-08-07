@@ -137,21 +137,44 @@
 
   .data {
     flex: 1 1 auto; min-height: 0;
-    padding: 6px 10px; display: flex; flex-direction: column; gap: 3px;
-    overflow: hidden;
+    padding: 5px 8px 4px; display: flex; flex-direction: column; gap: 2px;
+    /* Prefer denser layout; scroll inside the tile before clipping fields. */
+    overflow-x: hidden;
+    overflow-y: auto;
   }
-  .row { display: grid; grid-template-columns: 58px 1fr; align-items: baseline; gap: 4px; }
+  .row { display: grid; grid-template-columns: 52px 1fr; align-items: baseline; gap: 4px; }
   .row .k {
-    font-size: 9px; font-weight: 600; letter-spacing: .7px;
+    font-size: 8px; font-weight: 600; letter-spacing: .6px;
     color: var(--muted); text-transform: uppercase;
   }
   .row .v {
-    font-size: 12px; font-weight: 500; overflow: hidden;
+    font-size: 11px; font-weight: 500; overflow: hidden;
     text-overflow: ellipsis; white-space: nowrap; min-width: 0;
   }
-  .row .v.model { font-weight: 700; }
-  .row .v.mono { font-family: "Cascadia Mono", Consolas, monospace; font-size: 11px; }
-  .row .v.flags { font-size: 11px; }
+  .row .v.model { font-weight: 700; font-size: 12px; }
+  .row .v.mono { font-family: "Cascadia Mono", Consolas, monospace; font-size: 10px; }
+  .row .v.flags { font-size: 10px; white-space: normal; line-height: 1.2; }
+  /* SMART telemetry — fixed columns so Powered/Cycles/Written stay readable. */
+  .telem {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 2px 8px;
+    margin-top: 4px; padding-top: 5px;
+    border-top: 1px solid var(--card-line);
+  }
+  .telem span {
+    display: flex; flex-direction: column; gap: 0;
+    min-width: 0;
+  }
+  .telem .k {
+    font-size: 8px; font-weight: 600; letter-spacing: .5px;
+    color: var(--muted); text-transform: uppercase;
+  }
+  .telem .v {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 11px; font-weight: 700; color: var(--ink);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
   .v.h-GOOD { color: var(--ok); font-weight: 700; }
   .v.h-WARNING, .v.h-UNKNOWN { color: #96660a; font-weight: 700; }
   .v.h-SCRAP, .v.h-FAIL { color: var(--alarm); font-weight: 700; }
@@ -198,18 +221,21 @@
   .foot.PASSED { background: var(--ok); color: #fff; border-top: none; }
   .foot.FAILED, .foot.ERROR { background: var(--alarm); color: #fff; border-top: none; }
 
-  .ask { flex: 0 0 auto; padding: 6px 10px 8px; border-top: 1px solid var(--card-line); }
+  .ask {
+    flex: 0 0 auto; margin-top: auto;
+    padding: 4px 8px 6px; border-top: 1px solid var(--card-line);
+  }
   .ask .q {
-    font-size: 9px; font-weight: 600; letter-spacing: .7px;
-    color: var(--muted); text-transform: uppercase; margin-bottom: 5px;
+    font-size: 8px; font-weight: 600; letter-spacing: .6px;
+    color: var(--muted); text-transform: uppercase; margin-bottom: 4px;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
-  .buttons { display: flex; gap: 6px; flex-wrap: wrap; }
+  .buttons { display: flex; gap: 5px; flex-wrap: wrap; }
   button.act {
-    flex: 1 1 auto; min-width: 0; height: 34px;
-    font-size: 11px; font-weight: 700; letter-spacing: 1.2px;
+    flex: 1 1 auto; min-width: 0; height: 30px;
+    font-size: 10px; font-weight: 700; letter-spacing: 1px;
     cursor: pointer; font-family: inherit; border: 1px solid transparent;
-    padding: 0 6px;
+    padding: 0 5px;
   }
   .yes { background: var(--ok); color: #fff; }
   .yes:active { background: #0f5e2c; }
@@ -274,11 +300,12 @@ const TYPE_LABEL = {
 const STATUS_ORDER = ["READY","CHECKING","WIPING","VERIFYING","PASSED","FAILED","ERROR","EMPTY"];
 const TB = 1e12;
 
-/* One screen: grade + wipe bands. Names match the physical docks. */
+/* One screen: grade + wipe bands. Names match the physical docks.
+   `flex` weights vertical space — NVMe grade tiles need room for SMART rows. */
 const BANDS = [
-  { title: "GRADE — STARTECH NVME", groups: ["NVME GRADE"], cols: 2 },
-  { title: "GRADE — SABRENT SATA / M.2", groups: ["SABRENT SATA", "M.2 DOCK"], cols: 3 },
-  { title: "WIPE — SUITOK", groups: ["SUITOK"], cols: 4, wipe: true },
+  { title: "GRADE — STARTECH NVME", groups: ["NVME GRADE"], cols: 2, flex: 3.2 },
+  { title: "GRADE — SABRENT SATA / M.2", groups: ["SABRENT SATA", "M.2 DOCK"], cols: 3, flex: 2.6 },
+  { title: "WIPE — SUITOK", groups: ["SUITOK"], cols: 4, wipe: true, flex: 2.0 },
   // Hidden until the 4-bay is on the hub (all QUAD-* still UNMAPPED).
   // { title: "SATA — STARTECH 4BAY", groups: ["STARTECH 4BAY"], cols: 4 },
 ];
@@ -376,8 +403,11 @@ function tileHTML(s, busyByGroup) {
     if (h) {
       const pct = h.percent === null ? "" : `${h.percent}% `;
       body += row("Health", `${pct}${h.verdict}`, `h-${h.verdict}`);
-      for (const d of (h.details || [])) {
-        body += row(d.k, d.v, "mono");
+      const details = h.details || [];
+      if (details.length) {
+        body += `<div class="telem">${details.map(d =>
+          `<span><span class="k">${d.k}</span><span class="v">${d.v}</span></span>`
+        ).join("")}</div>`;
       }
       const busy = s.status === "WIPING" || s.status === "VERIFYING";
       if (h.warnings.length && !busy) body += row("Flags", h.warnings.join(" · "), "flags");
@@ -570,7 +600,8 @@ async function refresh(force = false) {
       const slots = band.groups.flatMap(g => byGroup[g] || []);
       if (!slots.length) return "";
       const wipeCls = band.wipe ? " wipe-only" : "";
-      const flex = `flex:${slots.length} 1 0`;
+      const weight = band.flex ?? slots.length;
+      const flex = `flex:${weight} 1 0`;
       return `<div class="band${wipeCls}" style="${flex}">
         <h2><span>${band.title}</span><span class="cnt">${slots.length} SLOTS</span></h2>
         <div class="slots" style="grid-template-columns: repeat(${band.cols}, minmax(0, 1fr))">

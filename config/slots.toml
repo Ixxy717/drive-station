@@ -24,6 +24,7 @@ bridge = "asm2362"
 hot_swap = true
 
 # --- Sabrent dual 2.5"/3.5" SATA (ASMedia 174c:55aa) -----------------------
+# LUN :0 / :1 — one-at-a-time characterize saw only LUN0; keep dual LUN split.
 [slots.SATA-1]
 id_path = "pci-0000:00:14.0-usb-0:4.4.4.4:1.0-scsi-0:0:0:0"
 bridge = "asmedia_sata"
@@ -42,24 +43,25 @@ id_path = "pci-0000:00:14.0-usb-0:8.4.4.3:1.0-scsi-0:0:0:0"
 bridge = "rtl9220"
 hot_swap = true
 
-# --- SUITOK wipe-only ------------------------------------------------------
+# --- SUITOK wipe-only (2026-08-07 characterize) ----------------------------
+# Dual A: 4.4.3.1 + 4.4.3.2 ; Dual B: 4.4.2.1 + 4.4.2.2
 [slots.SUITOK-1]
-id_path = "pci-0000:00:14.0-usb-0:4.4.2.1:1.0-scsi-0:0:0:0"
+id_path = "pci-0000:00:14.0-usb-0:4.4.3.1:1.0-scsi-0:0:0:0"
 bridge = "rtl9210"
 hot_swap = true
 
 [slots.SUITOK-2]
-id_path = "pci-0000:00:14.0-usb-0:8.4.2.2:1.0-scsi-0:0:0:0"
+id_path = "pci-0000:00:14.0-usb-0:4.4.3.2:1.0-scsi-0:0:0:0"
 bridge = "rtl9210"
 hot_swap = true
 
 [slots.SUITOK-3]
-id_path = "pci-0000:00:14.0-usb-0:8.4.3.2:1.0-scsi-0:0:0:0"
-bridge = "rtl9220"
+id_path = "pci-0000:00:14.0-usb-0:4.4.2.1:1.0-scsi-0:0:0:0"
+bridge = "rtl9210"
 hot_swap = true
 
 [slots.SUITOK-4]
-id_path = "UNMAPPED-SUITOK-4"
+id_path = "pci-0000:00:14.0-usb-0:4.4.2.2:1.0-scsi-0:0:0:0"
 bridge = "rtl9210"
 hot_swap = true
 

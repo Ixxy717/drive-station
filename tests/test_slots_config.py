@@ -23,11 +23,12 @@ def test_default_slots_toml_loads_and_matches_layout():
     assert slots["SATA-2"].shared_power_group == "SABRENT SATA"
     assert slots["SATA-1"].id_path.endswith("usb-0:4.4.4.4:1.0-scsi-0:0:0:0")
     assert slots["SATA-2"].id_path.endswith("usb-0:4.4.4.4:1.0-scsi-0:0:0:1")
-    # SUITOK wipe-only
+    # SUITOK wipe-only (both duals on hub port 4.4.x)
     assert slots["SUITOK-1"].bridge == "rtl9210"
-    assert slots["SUITOK-2"].bridge == "rtl9210"
-    assert slots["SUITOK-3"].bridge == "rtl9220"
-    assert slots["SUITOK-4"].id_path.startswith("UNMAPPED-")
+    assert slots["SUITOK-1"].id_path.endswith("usb-0:4.4.3.1:1.0-scsi-0:0:0:0")
+    assert slots["SUITOK-2"].id_path.endswith("usb-0:4.4.3.2:1.0-scsi-0:0:0:0")
+    assert slots["SUITOK-3"].id_path.endswith("usb-0:4.4.2.1:1.0-scsi-0:0:0:0")
+    assert slots["SUITOK-4"].id_path.endswith("usb-0:4.4.2.2:1.0-scsi-0:0:0:0")
     assert slots["M2-1"].bridge == "rtl9220"
     # StarTech 4-bay not on hub yet
     assert slots["QUAD-1"].id_path.startswith("UNMAPPED-")

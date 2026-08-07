@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Cache-Control" content="no-store">
 <title>Drive Station</title>
 <style>
   /* Graphite console — one viewport, every slot visible. No scroll. */
@@ -137,10 +138,19 @@
 
   .data {
     flex: 1 1 auto; min-height: 0;
-    padding: 5px 8px 4px; display: flex; flex-direction: column; gap: 2px;
-    /* Prefer denser layout; scroll inside the tile before clipping fields. */
-    overflow-x: hidden;
-    overflow-y: auto;
+    padding: 6px 10px 4px;
+    display: flex; flex-direction: column; gap: 2px;
+    overflow: hidden;
+  }
+  /* Identity left + SMART right — Powered/Cycles/Written never sit under the fold. */
+  .data.split {
+    display: grid;
+    grid-template-columns: minmax(0, 1.4fr) minmax(168px, 1fr);
+    gap: 6px 12px;
+    align-content: start;
+  }
+  .data.split .idblock {
+    display: flex; flex-direction: column; gap: 2px; min-width: 0;
   }
   .row { display: grid; grid-template-columns: 52px 1fr; align-items: baseline; gap: 4px; }
   .row .k {
@@ -154,13 +164,14 @@
   .row .v.model { font-weight: 700; font-size: 12px; }
   .row .v.mono { font-family: "Cascadia Mono", Consolas, monospace; font-size: 10px; }
   .row .v.flags { font-size: 10px; white-space: normal; line-height: 1.2; }
-  /* SMART telemetry — fixed columns so Powered/Cycles/Written stay readable. */
   .telem {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 2px 8px;
-    margin-top: 4px; padding-top: 5px;
-    border-top: 1px solid var(--card-line);
+    grid-template-columns: 1fr 1fr;
+    gap: 4px 10px;
+    align-content: start;
+    min-width: 0;
+    padding-left: 10px;
+    border-left: 1px solid var(--card-line);
   }
   .telem span {
     display: flex; flex-direction: column; gap: 0;
@@ -172,7 +183,7 @@
   }
   .telem .v {
     font-family: "Cascadia Mono", Consolas, monospace;
-    font-size: 11px; font-weight: 700; color: var(--ink);
+    font-size: 12px; font-weight: 700; color: var(--ink);
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .v.h-GOOD { color: var(--ok); font-weight: 700; }
@@ -395,32 +406,34 @@ function tileHTML(s, busyByGroup) {
 
   let body = "";
   if (d) {
-    body = `<div class="data">`;
-    body += row("Model", `${d.manufacturer} ${d.model}`, "model");
-    body += row("Serial", d.serial, "mono");
-    body += row("Size", d.capacity);
-    if (s.usage && s.usage.label) body += row("Data", s.usage.label);
+    const details = (h && h.details) || [];
+    let id = "";
+    id += row("Model", `${d.manufacturer} ${d.model}`, "model");
+    id += row("Serial", d.serial, "mono");
+    id += row("Size", d.capacity);
+    if (s.usage && s.usage.label) id += row("Data", s.usage.label);
     if (h) {
       const pct = h.percent === null ? "" : `${h.percent}% `;
-      body += row("Health", `${pct}${h.verdict}`, `h-${h.verdict}`);
-      const details = h.details || [];
-      if (details.length) {
-        body += `<div class="telem">${details.map(d =>
-          `<span><span class="k">${d.k}</span><span class="v">${d.v}</span></span>`
-        ).join("")}</div>`;
-      }
+      id += row("Health", `${pct}${h.verdict}`, `h-${h.verdict}`);
       const busy = s.status === "WIPING" || s.status === "VERIFYING";
-      if (h.warnings.length && !busy) body += row("Flags", h.warnings.join(" · "), "flags");
+      if (h.warnings.length && !busy) id += row("Flags", h.warnings.join(" · "), "flags");
     }
     if (s.wipe_method) {
       const label = s.status === "READY" ? "Plan" : "Method";
-      body += row(label, s.wipe_method.replaceAll("_", " "), "mono");
+      id += row(label, s.wipe_method.replaceAll("_", " "), "mono");
     }
     if (s.status === "PASSED") {
-      body += row("Result", "WIPED · VERIFIED EMPTY", "h-GOOD");
-      body += row("Card", `<a class="listing" href="/d/${encodeURIComponent(d.serial)}">/d/${d.serial}</a>`);
+      id += row("Result", "WIPED · VERIFIED EMPTY", "h-GOOD");
+      id += row("Card", `<a class="listing" href="/d/${encodeURIComponent(d.serial)}">/d/${d.serial}</a>`);
     }
-    body += `</div>`;
+    if (details.length) {
+      const telem = details.map(x =>
+        `<span><span class="k">${x.k}</span><span class="v">${x.v}</span></span>`
+      ).join("");
+      body = `<div class="data split"><div class="idblock">${id}</div><div class="telem">${telem}</div></div>`;
+    } else {
+      body = `<div class="data">${id}</div>`;
+    }
   } else if (s.status === "DETECTED" || s.status === "CHECKING") {
     body = `<div class="nodevice">IDENTIFYING</div>`;
   } else {

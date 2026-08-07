@@ -79,9 +79,9 @@ def main() -> int:
             page.goto(BASE + "/", wait_until="networkidle")
             # Kiosk has no sim panel — hide it so band heights match production.
             page.add_style_tag(content="#simpanel{display:none!important}")
-            page.wait_for_timeout(1200)
+            page.wait_for_selector(".telem", timeout=5000)
+            page.wait_for_timeout(400)
             page.screenshot(path=str(OUT), full_page=False)
-            # Also crop each grade band for review.
             for name, sel in (
                 ("board-nvme-band.png", ".band:nth-of-type(1)"),
                 ("board-sata-band.png", ".band:nth-of-type(2)"),
@@ -89,6 +89,11 @@ def main() -> int:
                 loc = page.locator(sel)
                 if loc.count():
                     loc.first.screenshot(path=str(OUT.parent / name))
+            # Prove SMART fields are painted, not just in the API.
+            text = page.locator(".band:nth-of-type(1)").inner_text()
+            for needle in ("POWERED", "CYCLES", "WRITTEN", "READ", "TEMP"):
+                if needle not in text.upper():
+                    raise SystemExit(f"NVMe band missing on-screen field: {needle}")
             browser.close()
         print(f"Wrote {OUT}")
         return 0

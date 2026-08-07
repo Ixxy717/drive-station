@@ -18,14 +18,14 @@ def test_queue_wipe_then_wipe_only_dock_sees_it(station, backend, joblog):
     backend.remove_drive("NVME-A1")
     wait_for(lambda: a1.status == SlotStatus.EMPTY, message="EMPTY A1")
 
-    backend.insert_drive("NVME-C1", make_nvme(serial="BIG1"))
-    c1 = station.slots["NVME-C1"]
+    backend.insert_drive("SUITOK-1", make_nvme(serial="BIG1"))
+    c1 = station.slots["SUITOK-1"]
     # Queued serial on a wipe-only bay auto-starts — no confirm tap.
-    wait_for(lambda: c1.status == SlotStatus.PASSED, message="PASSED on C1")
+    wait_for(lambda: c1.status == SlotStatus.PASSED, message="PASSED on SUITOK-1")
     assert c1.wipe_only is True
     assert station.pending_wipes() == []
     assert joblog.by_serial("BIG1")[0]["result"] == "PASSED"
-    assert backend.wipe_calls == [("NVME-C1", "BIG1")]
+    assert backend.wipe_calls == [("SUITOK-1", "BIG1")]
 
 
 def test_large_nvme_wipe_auto_queues(station, backend):
@@ -62,12 +62,12 @@ def test_pending_queue_survives_restart(backend, joblog):
 
 
 def test_unqueued_wipe_only_still_needs_confirm(station, backend):
-    backend.insert_drive("NVME-C1", make_nvme(serial="MANUAL1"))
-    c1 = station.slots["NVME-C1"]
+    backend.insert_drive("SUITOK-1", make_nvme(serial="MANUAL1"))
+    c1 = station.slots["SUITOK-1"]
     wait_for(lambda: c1.status == SlotStatus.READY, message="READY")
     assert c1.awaiting_confirm is True
     assert backend.wipe_calls == []
-    station.confirm_wipe("NVME-C1")
+    station.confirm_wipe("SUITOK-1")
     wait_for(lambda: c1.status == SlotStatus.PASSED, message="PASSED")
 
 

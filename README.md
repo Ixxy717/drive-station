@@ -176,42 +176,35 @@ After every wipe it **verifies**:
 
 | Dock | Method |
 |------|--------|
-| SATA-1…4 (StarTech 4-bay) | ATA enhanced secure erase when not frozen; else zero overwrite |
-| SATA-5/6 (old 2-bay) | Same; dock is **not** hot-swap — power-cycle to swap |
+| SATA-1 / SATA-2 (Sabrent dual) | ATA enhanced when not frozen; else zero overwrite; **not** hot-swap |
+| QUAD-1…4 (StarTech 4-bay) | Same ATA / overwrite; hot-swap when on the hub |
 | NVME-A1 / NVME-B1 (StarTech) | Zero overwrite; SMART wear via `-d sntasmedia` |
-| NVME-C/D (SUITOK RTL9210) | Zero overwrite; wear often UNKNOWN |
+| SUITOK-1…4 | Zero overwrite; wear often UNKNOWN |
 | M2-1 SATA media (RTL9220) | ATA enhanced when available; else overwrite |
 | M2-1 NVMe media | Zero overwrite only |
 
-### Full remap (current layout)
-
-Every `id_path` in `config/slots.toml` is `UNMAPPED-*` until you characterize
-on the mini PC. **Plug each dock into a permanent USB port and leave it.**
+### Slot names (match the bench)
 
 | Slots | Hardware | Bridge |
 |-------|----------|--------|
-| `NVME-A1`, `NVME-B1` | StarTech NVMe toasters (primary — real wear %) | `asm2362` |
-| `SATA-1`…`SATA-4` | StarTech SDOCK4U313 4-bay | `asmedia_sata` |
-| `SATA-5`, `SATA-6` | Older 2-bay SATA dock | `asmedia_sata` |
-| `NVME-C1/C2`, `NVME-D1/D2` | SUITOK duals (wipe OK; health often UNKNOWN) | `rtl9210` |
-| `M2-1` | Dual M.2 dock (bay 1) | `rtl9220` |
+| `NVME-A1`, `NVME-B1` | StarTech NVMe toasters (grade — real wear %) | `asm2362` |
+| `SATA-1`, `SATA-2` | Sabrent dual 2.5"/3.5" SATA | `asmedia_sata` |
+| `M2-1` | M.2 dock | `rtl9220` |
+| `SUITOK-1`…`4` | SUITOK wipe-only | `rtl9210` (or `rtl9220`) |
+| `QUAD-1`…`4` | StarTech SDOCK4U313 4-bay (optional) | `asmedia_sata` |
 
 ```
 git pull
 sudo systemctl restart drivestation
 
-# StarTech NVMe A then B first (sacrificial sticks)
+# Guided remap (skips QUAD — use --quad when that dock is on the hub)
 sudo tools/dock_characterize.sh
-#   → do NVME-A1 and NVME-B1; skip others with "s" for now
 
-# StarTech 4-bay: four different-size drives; leave old 2-bay empty
-sudo tools/dock_characterize.sh --quad
-
-# Old 2-bay → SATA-5/6; leave StarTech 4-bay empty
+# Sabrent dual → SATA-1/2; leave QUAD empty
 sudo tools/dock_characterize.sh --dual
 
-# SUITOKs + M2 when you're ready
-sudo tools/dock_characterize.sh   # NVME-C*, NVME-D*, M2-1
+# StarTech 4-bay → QUAD-1..4; leave Sabrent empty
+sudo tools/dock_characterize.sh --quad
 ```
 
 Paste the printed `[slots.*]` / `ID_PATH=` lines into `config/slots.toml`, then
@@ -224,14 +217,14 @@ sudo smartctl -a -d sntasmedia /dev/sdX
 If `sntasmedia` fails but `sntrealtek` works, set that slot to
 `bridge = "rtl9210"` instead of `asm2362`.
 
-The old 2-bay (`SATA-5/6`) is **not** hot-swap: power-cycle that port after
-inserting/removing. StarTech 4-bay, NVMe docks, and M2-1 are hot-swap.
+The Sabrent (`SATA-1/2`) is **not** hot-swap: power-cycle that port after
+inserting/removing. StarTech NVMe, SUITOK, M2-1, and QUAD are hot-swap.
 
 ### Phase 0 tools (already run for this hardware)
 
 ```
 sudo tools/dock_characterize.sh          # per-slot bridge report
-sudo tools/dock_characterize.sh --dual   # SATA LUN map (256 vs 512)
+sudo tools/dock_characterize.sh --dual   # Sabrent LUN map (256 vs 512)
 bash tools/serve_reports.sh              # pull reports over LAN :2020
 ```
 

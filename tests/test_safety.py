@@ -23,11 +23,11 @@ def test_serial_swap_before_wipe_aborts(station, backend, joblog):
     command (drive swapped, or bridge lying). Must abort with NO wipe."""
     drive = make_nvme(serial="ORIGINAL",
                       faults=SimFaults(second_read_serial="SWAPPED"))
-    backend.insert_drive("NVME-C1", drive)
-    slot = station.slots["NVME-C1"]
+    backend.insert_drive("SUITOK-1", drive)
+    slot = station.slots["SUITOK-1"]
     wait_for(lambda: slot.status == SlotStatus.READY, message="READY")
 
-    station.confirm_wipe("NVME-C1")
+    station.confirm_wipe("SUITOK-1")
     wait_for(lambda: slot.status == SlotStatus.ERROR, message="ERROR")
     assert "DRIVE CHANGED" in slot.message
     assert backend.wipe_calls == []

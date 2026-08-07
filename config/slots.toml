@@ -1,47 +1,18 @@
-# Slot ↔ USB path map. Remapped from live bus 2026-08-07.
-# Do not move dock cables after this. Re-run: sudo tools/dock_characterize.sh
+# Slot ↔ USB path map. Names match the physical docks on the bench.
+#
+#   NVME-A1 / B1  = StarTech single-bay NVMe toasters (grade)
+#   SATA-1 / 2    = Sabrent dual 2.5"/3.5" SATA
+#   M2-1          = M.2 dock
+#   SUITOK-1..4   = SUITOK wipe-only NVMe
+#   QUAD-1..4     = StarTech 4-bay SATA (not on hub yet)
+#
+# Remap helpers (on the mini PC):
+#   sudo tools/dock_characterize.sh          # guided (skips unmapped QUAD)
+#   sudo tools/dock_characterize.sh --dual   # Sabrent → SATA-1/2
+#   sudo tools/dock_characterize.sh --quad   # StarTech 4-bay → QUAD-1..4
 # Override with DRIVESTATION_SLOTS=/path/to/slots.toml
 
-# --- StarTech SDOCK4U313 4-bay — not on hub yet ----------------------------
-[slots.SATA-1]
-id_path = "UNMAPPED-SATA-1"
-bridge = "asmedia_sata"
-hot_swap = true
-shared_power_group = "STARTECH 4BAY"
-
-[slots.SATA-2]
-id_path = "UNMAPPED-SATA-2"
-bridge = "asmedia_sata"
-hot_swap = true
-shared_power_group = "STARTECH 4BAY"
-
-[slots.SATA-3]
-id_path = "UNMAPPED-SATA-3"
-bridge = "asmedia_sata"
-hot_swap = true
-shared_power_group = "STARTECH 4BAY"
-
-[slots.SATA-4]
-id_path = "UNMAPPED-SATA-4"
-bridge = "asmedia_sata"
-hot_swap = true
-shared_power_group = "STARTECH 4BAY"
-
-# --- Sabrent dual SATA (ASMedia 174c:55aa) on hub 4.4.4.4 ------------------
-[slots.SATA-5]
-id_path = "pci-0000:00:14.0-usb-0:4.4.4.4:1.0-scsi-0:0:0:0"
-bridge = "asmedia_sata"
-hot_swap = false
-shared_power_group = "SATA DOCK"
-
-[slots.SATA-6]
-id_path = "pci-0000:00:14.0-usb-0:4.4.4.4:1.0-scsi-0:0:0:1"
-bridge = "asmedia_sata"
-hot_swap = false
-shared_power_group = "SATA DOCK"
-
-# --- StarTech NVMe toasters (14b0:020d / ASM2362) on hub 4.4.4 -------------
-# A1 serial …937, B1 serial …93B. Empty bays stay size=0 until NVMe seats.
+# --- StarTech NVMe toasters (14b0:020d / ASM2362) ---------------------------
 [slots.NVME-A1]
 id_path = "pci-0000:00:14.0-usb-0:4.4.4.1:1.0-scsi-0:0:0:0"
 bridge = "asm2362"
@@ -52,31 +23,67 @@ id_path = "pci-0000:00:14.0-usb-0:4.4.4.2:1.0-scsi-0:0:0:0"
 bridge = "asm2362"
 hot_swap = true
 
-# --- SUITOK / wipe RTL9210 (0bda:9210) ------------------------------------
-# C1 = USB3 path with media right now (Intel on 4.4.2.1).
-# C2 = second RTL9210 currently on USB2 (8.4.2.2).
-[slots.NVME-C1]
-id_path = "pci-0000:00:14.0-usb-0:4.4.2.1:1.0-scsi-0:0:0:0"
-bridge = "rtl9210"
-hot_swap = true
+# --- Sabrent dual 2.5"/3.5" SATA (ASMedia 174c:55aa) -----------------------
+[slots.SATA-1]
+id_path = "pci-0000:00:14.0-usb-0:4.4.4.4:1.0-scsi-0:0:0:0"
+bridge = "asmedia_sata"
+hot_swap = false
+shared_power_group = "SABRENT SATA"
 
-[slots.NVME-C2]
-id_path = "pci-0000:00:14.0-usb-0:8.4.2.2:1.0-scsi-0:0:0:0"
-bridge = "rtl9210"
-hot_swap = true
+[slots.SATA-2]
+id_path = "pci-0000:00:14.0-usb-0:4.4.4.4:1.0-scsi-0:0:0:1"
+bridge = "asmedia_sata"
+hot_swap = false
+shared_power_group = "SABRENT SATA"
 
-[slots.NVME-D1]
-id_path = "pci-0000:00:14.0-usb-0:8.4.3.2:1.0-scsi-0:0:0:0"
-bridge = "rtl9220"
-hot_swap = true
-
-[slots.NVME-D2]
-id_path = "UNMAPPED-NVME-D2"
-bridge = "rtl9210"
-hot_swap = true
-
-# --- M.2 dock bay (RTL9220DP) ---------------------------------------------
+# --- M.2 dock (RTL9220DP) --------------------------------------------------
 [slots.M2-1]
 id_path = "pci-0000:00:14.0-usb-0:8.4.4.3:1.0-scsi-0:0:0:0"
 bridge = "rtl9220"
 hot_swap = true
+
+# --- SUITOK wipe-only ------------------------------------------------------
+[slots.SUITOK-1]
+id_path = "pci-0000:00:14.0-usb-0:4.4.2.1:1.0-scsi-0:0:0:0"
+bridge = "rtl9210"
+hot_swap = true
+
+[slots.SUITOK-2]
+id_path = "pci-0000:00:14.0-usb-0:8.4.2.2:1.0-scsi-0:0:0:0"
+bridge = "rtl9210"
+hot_swap = true
+
+[slots.SUITOK-3]
+id_path = "pci-0000:00:14.0-usb-0:8.4.3.2:1.0-scsi-0:0:0:0"
+bridge = "rtl9220"
+hot_swap = true
+
+[slots.SUITOK-4]
+id_path = "UNMAPPED-SUITOK-4"
+bridge = "rtl9210"
+hot_swap = true
+
+# --- StarTech SDOCK4U313 4-bay — plug in hub, then --quad ------------------
+[slots.QUAD-1]
+id_path = "UNMAPPED-QUAD-1"
+bridge = "asmedia_sata"
+hot_swap = true
+shared_power_group = "STARTECH 4BAY"
+
+[slots.QUAD-2]
+id_path = "UNMAPPED-QUAD-2"
+bridge = "asmedia_sata"
+hot_swap = true
+shared_power_group = "STARTECH 4BAY"
+
+[slots.QUAD-3]
+id_path = "UNMAPPED-QUAD-3"
+bridge = "asmedia_sata"
+hot_swap = true
+shared_power_group = "STARTECH 4BAY"
+
+[slots.QUAD-4]
+id_path = "UNMAPPED-QUAD-4"
+bridge = "asmedia_sata"
+hot_swap = true
+shared_power_group = "STARTECH 4BAY"

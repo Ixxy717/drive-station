@@ -159,7 +159,7 @@ class SlotState:
 # SUITOK dual docks — grade elsewhere (StarTech); these are wipe bays for
 # large NVMe (and any serial queued from a grading dock).
 WIPE_ONLY_SLOTS: frozenset[str] = frozenset({
-    "NVME-C1", "NVME-C2", "NVME-D1", "NVME-D2",
+    "SUITOK-1", "SUITOK-2", "SUITOK-3", "SUITOK-4",
 })
 
 # NVMe at or above this size should be queued to a wipe-only dock instead of
@@ -169,26 +169,26 @@ LARGE_NVME_QUEUE_BYTES = 1_000_000_000_000  # 1 TB marketing
 
 # Permanent physical slot identities. On the real station these map to USB
 # port paths via config/slots.toml. Remap after any cable move:
-#   sudo tools/dock_characterize.sh --quad   # SATA-1..4
-#   sudo tools/dock_characterize.sh --dual   # SATA-5/6
-#   sudo tools/dock_characterize.sh          # NVMe + M2 one at a time
+#   sudo tools/dock_characterize.sh          # guided (skips unmapped QUAD)
+#   sudo tools/dock_characterize.sh --dual   # Sabrent → SATA-1/2
+#   sudo tools/dock_characterize.sh --quad   # StarTech 4-bay → QUAD-1..4
 SLOT_LAYOUT: list[tuple[str, str]] = [
-    # StarTech SDOCK4U313 4-bay — primary SATA (hot-swap, SMART).
-    ("SATA-1", "STARTECH 4BAY"),
-    ("SATA-2", "STARTECH 4BAY"),
-    ("SATA-3", "STARTECH 4BAY"),
-    ("SATA-4", "STARTECH 4BAY"),
-    # Older 2-bay SATA dock — not hot-swap.
-    ("SATA-5", "SATA DOCK"),
-    ("SATA-6", "SATA DOCK"),
-    # StarTech single-bay NVMe toasters — primary NVMe (real SMART / wear %).
-    ("NVME-A1", "NVME GRADE A"),
-    ("NVME-B1", "NVME GRADE B"),
-    # SUITOK duals — wipe-only (large NVMe / queued from StarTech).
-    ("NVME-C1", "WIPE ONLY"),
-    ("NVME-C2", "WIPE ONLY"),
-    ("NVME-D1", "WIPE ONLY"),
-    ("NVME-D2", "WIPE ONLY"),
-    # Dual M.2 dock — only bay 1 is reliable alone.
+    # StarTech NVMe toasters — grade (real SMART / wear %).
+    ("NVME-A1", "NVME GRADE"),
+    ("NVME-B1", "NVME GRADE"),
+    # Sabrent dual 2.5"/3.5" SATA — the only "SATA-*" names on the board.
+    ("SATA-1", "SABRENT SATA"),
+    ("SATA-2", "SABRENT SATA"),
+    # M.2 dock (SATA or NVMe in M.2 form factor).
     ("M2-1", "M.2 DOCK"),
+    # SUITOK — wipe-only (queued large NVMe / dedicated wipe).
+    ("SUITOK-1", "SUITOK"),
+    ("SUITOK-2", "SUITOK"),
+    ("SUITOK-3", "SUITOK"),
+    ("SUITOK-4", "SUITOK"),
+    # StarTech SDOCK4U313 4-bay — not on the hub yet (characterize with --quad).
+    ("QUAD-1", "STARTECH 4BAY"),
+    ("QUAD-2", "STARTECH 4BAY"),
+    ("QUAD-3", "STARTECH 4BAY"),
+    ("QUAD-4", "STARTECH 4BAY"),
 ]

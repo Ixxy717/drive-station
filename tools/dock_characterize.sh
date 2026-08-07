@@ -14,9 +14,8 @@
 #   sudo tools/dock_characterize.sh --dual          # map dual-bay SATA LUNs
 #       (insert two different-size drives at once — e.g. 256GB in bay 1,
 #        512GB in bay 2 — and the script records which USB/LUN is which)
-#   sudo tools/dock_characterize.sh --quad          # map StarTech 4-bay
-#       (four different-size drives, one per bay → SATA-1..SATA-4)
-#   sudo tools/dock_characterize.sh --dual          # map old 2-bay → SATA-5/6
+#   sudo tools/dock_characterize.sh --dual          # Sabrent → SATA-1 / SATA-2
+#   sudo tools/dock_characterize.sh --quad          # StarTech 4-bay → QUAD-1..4
 #
 # Output: reports/dock-characterization-<date>/  (one file per tested slot)
 #         or reports/dual-sata-map-<date>/ / quad-sata-map-<date>/
@@ -67,12 +66,11 @@ fi
 mkdir -p "$OUTDIR"
 echo "Reports -> $OUTDIR"
 
-# Primary docks first (StarTech), then secondary SUITOKs / old SATA / M2.
+# Names match the bench. QUAD (StarTech 4-bay) is --quad only — not here.
 SLOTS=(NVME-A1 NVME-B1
-       SATA-1 SATA-2 SATA-3 SATA-4
-       SATA-5 SATA-6
-       NVME-C1 NVME-C2 NVME-D1 NVME-D2
-       M2-1)
+       SATA-1 SATA-2
+       M2-1
+       SUITOK-1 SUITOK-2 SUITOK-3 SUITOK-4)
 
 # Disk names only (used for removal checks / summaries).
 list_disks() { lsblk -dno NAME,TYPE | awk '$2=="disk"{print $1}' | sort; }
@@ -187,14 +185,14 @@ characterize() {  # characterize <slot> <dev> <report>
         echo "id_path = \"$id_path\""
         case "$slot" in
             NVME-A1|NVME-B1) echo 'bridge = "asm2362"'; echo "hot_swap = true" ;;
-            NVME-C*|NVME-D*) echo 'bridge = "rtl9210"'; echo "hot_swap = true" ;;
+            SUITOK-*) echo 'bridge = "rtl9210"'; echo "hot_swap = true" ;;
             M2-1) echo 'bridge = "rtl9220"'; echo "hot_swap = true" ;;
-            SATA-[1-4])
+            SATA-1|SATA-2)
+                echo 'bridge = "asmedia_sata"'; echo "hot_swap = false"
+                echo 'shared_power_group = "SABRENT SATA"' ;;
+            QUAD-*)
                 echo 'bridge = "asmedia_sata"'; echo "hot_swap = true"
                 echo 'shared_power_group = "STARTECH 4BAY"' ;;
-            SATA-[56])
-                echo 'bridge = "asmedia_sata"'; echo "hot_swap = false"
-                echo 'shared_power_group = "SATA DOCK"' ;;
             *) echo 'bridge = "asmedia_sata"'; echo "hot_swap = true" ;;
         esac
         echo "========================================"
@@ -270,27 +268,27 @@ characterize() {  # characterize <slot> <dev> <report>
     fi
 }
 
-# --dual: map old 2-bay SATA → SATA-5 / SATA-6 using two different sizes.
+# --dual: map Sabrent 2.5"/3.5" dual → SATA-1 / SATA-2 using two different sizes.
 dual_sata_map() {
     local report="$OUTDIR/DUAL-SATA-MAP.txt"
     local bay1_gb=256 bay2_gb=512
-    local slot1=SATA-5 slot2=SATA-6
+    local slot1=SATA-1 slot2=SATA-2
     local name size_b size_gb path lun model serial vendor
     local -a names=()
 
     {
-        echo "Dual-bay SATA LUN mapping (old 2-bay → $slot1 / $slot2)"
+        echo "Sabrent dual SATA LUN mapping → $slot1 / $slot2"
         echo "Timestamp: $(date -Iseconds)"
         echo
-        echo "Operator places two DIFFERENT-capacity drives in the old 2-bay dock"
-        echo "at the same time so each physical bay gets a unique USB/LUN identity."
-        echo "Leave the StarTech 4-bay empty/unpowered during this run."
+        echo "Put two DIFFERENT-capacity drives in the Sabrent 2.5\"/3.5\" dual dock"
+        echo "at the same time so each bay gets a unique USB/LUN identity."
+        echo "Leave the StarTech 4-bay (QUAD) empty/unpowered during this run."
         echo
     } >"$report"
 
     echo
-    echo "=== Dual-bay SATA mapping (--dual) → $slot1 / $slot2 ==="
-    echo "Goal: learn which USB path/LUN is physical bay 1 vs bay 2 on the OLD dock."
+    echo "=== Sabrent dual SATA mapping (--dual) → $slot1 / $slot2 ==="
+    echo "Goal: learn which USB path/LUN is physical bay 1 vs bay 2 on the Sabrent."
     echo
     echo "Plan (sizes are nominal — close enough is fine):"
     echo "  Physical bay 1 ($slot1)  ←  ~${bay1_gb}GB drive"
@@ -311,8 +309,8 @@ dual_sata_map() {
     echo
     echo "1) Put the ~${bay1_gb}GB drive in physical bay 1 ($slot1)."
     echo "2) Put the ~${bay2_gb}GB drive in physical bay 2 ($slot2)."
-    echo "3) Power-cycle the old SATA dock port so BOTH enumerate."
-    echo "4) Leave the StarTech 4-bay empty so sizes don't collide."
+    echo "3) Power-cycle the Sabrent dock so BOTH enumerate."
+    echo "4) Leave the StarTech 4-bay (QUAD) empty so sizes don't collide."
     read -rp "Press enter when both drives are up: " _
 
     echo | tee -a "$report"
@@ -439,7 +437,7 @@ dual_sata_map() {
         echo "id_path = \"$path1\""
         echo "bridge = \"asmedia_sata\""
         echo "hot_swap = false"
-        echo "shared_power_group = \"SATA DOCK\""
+        echo "shared_power_group = \"SABRENT SATA\""
         echo
         echo "${slot2}_DEV=/dev/$dev2"
         echo "${slot2}_ID_PATH=$path2"
@@ -451,7 +449,7 @@ dual_sata_map() {
         echo "id_path = \"$path2\""
         echo "bridge = \"asmedia_sata\""
         echo "hot_swap = false"
-        echo "shared_power_group = \"SATA DOCK\""
+        echo "shared_power_group = \"SABRENT SATA\""
         echo
         if [[ "$path1" == "$path2" ]]; then
             echo "NOTE=ID_PATH identical — bay distinction is by LUN only"
@@ -469,18 +467,18 @@ dual_sata_map() {
 quad_sata_map() {
     local report="$OUTDIR/QUAD-SATA-MAP.txt"
     # Default nominal GB per physical bay left→right (or front→back) on SDOCK4U313.
-    local -a bay_slots=(SATA-1 SATA-2 SATA-3 SATA-4)
+    local -a bay_slots=(QUAD-1 QUAD-2 QUAD-3 QUAD-4)
     local -a bay_gbs=(256 512 1000 2000)
     local name size_b size_gb path lun model serial vendor
     local -a names=()
     local i slot gb
 
     {
-        echo "StarTech 4-bay SATA mapping (SDOCK4U313 → SATA-1..SATA-4)"
+        echo "StarTech 4-bay SATA mapping (SDOCK4U313 → QUAD-1..QUAD-4)"
         echo "Timestamp: $(date -Iseconds)"
         echo
         echo "Insert FOUR different-capacity drives, one per bay, then power on."
-        echo "Leave the old 2-bay SATA dock empty/unpowered during this run."
+        echo "Leave the Sabrent dual (SATA-1/2) empty/unpowered during this run."
         echo "The script matches size → physical bay → ID_PATH for slots.toml."
         echo
     } >"$report"
@@ -508,7 +506,7 @@ quad_sata_map() {
     echo "1) Insert four DIFFERENT-size drives into the four StarTech bays"
     echo "   (match the size plan above — bay order is physical left→right)."
     echo "2) Power the dock / reconnect USB so all four enumerate."
-    echo "3) Leave the old 2-bay SATA dock empty/unpowered (those are SATA-5/6)."
+    echo "3) Leave the Sabrent dual empty/unpowered (those are SATA-1/2)."
     read -rp "Press enter when all four drives are up: " _
 
     echo | tee -a "$report"

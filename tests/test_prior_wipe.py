@@ -32,7 +32,7 @@ def test_prior_wipe_needs_rewipe_when_dirty():
         "result": "PASSED",
         "wipe_finished_at": "2026-08-06T20:28:05+00:00",
         "wipe_method": "ZERO_OVERWRITE",
-        "slot": "NVME-C1",
+        "slot": "SUITOK-1",
         "created_at": "2026-08-06T20:27:33+00:00",
     }]
     u = UsageSnapshot(256_000_000_000, 50_000_000_000, True,

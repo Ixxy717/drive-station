@@ -274,11 +274,13 @@ const TYPE_LABEL = {
 const STATUS_ORDER = ["READY","CHECKING","WIPING","VERIFYING","PASSED","FAILED","ERROR","EMPTY"];
 const TB = 1e12;
 
-/* One screen: grade + wipe bands. /wipe still works but shows the same full board. */
+/* One screen: grade + wipe bands. Names match the physical docks. */
 const BANDS = [
-  { title: "SATA — STARTECH 4BAY", groups: ["STARTECH 4BAY"], cols: 4 },
-  { title: "GRADE — SATA / NVME / M.2", groups: ["SATA DOCK", "NVME GRADE A", "NVME GRADE B", "M.2 DOCK"], cols: 5 },
-  { title: "WIPE ONLY", groups: ["WIPE ONLY"], cols: 4, wipe: true },
+  { title: "GRADE — STARTECH NVME", groups: ["NVME GRADE"], cols: 2 },
+  { title: "GRADE — SABRENT SATA / M.2", groups: ["SABRENT SATA", "M.2 DOCK"], cols: 3 },
+  { title: "WIPE — SUITOK", groups: ["SUITOK"], cols: 4, wipe: true },
+  // Hidden until the 4-bay is on the hub (all QUAD-* still UNMAPPED).
+  // { title: "SATA — STARTECH 4BAY", groups: ["STARTECH 4BAY"], cols: 4 },
 ];
 
 /* Board poll rewrites innerHTML every ~700ms. On a touchscreen that destroys
@@ -338,7 +340,7 @@ function row(k, v, cls = "") {
   return `<div class="row"><span class="k">${k}</span><span class="v ${cls}">${v}</span></div>`;
 }
 
-const SHARED_POWER_GROUPS = ["SATA DOCK"];
+const SHARED_POWER_GROUPS = ["SABRENT SATA"];
 
 function guardChip(s, busySlots) {
   if (!SHARED_POWER_GROUPS.includes(s.group)) return "";

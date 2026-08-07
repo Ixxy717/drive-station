@@ -15,17 +15,23 @@ def test_default_slots_toml_loads_and_matches_layout():
     assert slots["NVME-A1"].bridge == "asm2362"
     assert slots["NVME-B1"].bridge == "asm2362"
     assert slots["NVME-A1"].hot_swap is True
-    assert slots["SATA-1"].id_path.startswith("UNMAPPED-")
+    # Sabrent dual — mapped paths, shared power, not hot-swap.
     assert slots["SATA-1"].bridge == "asmedia_sata"
-    assert slots["SATA-1"].hot_swap is True
-    assert slots["SATA-1"].shared_power_group == "STARTECH 4BAY"
-    assert slots["SATA-5"].hot_swap is False
-    assert slots["SATA-5"].shared_power_group == "SATA DOCK"
-    assert slots["NVME-C1"].bridge == "rtl9210"
-    assert slots["NVME-C2"].bridge == "rtl9210"
-    assert slots["NVME-D1"].bridge == "rtl9210"
-    assert slots["NVME-D2"].bridge == "rtl9210"
+    assert slots["SATA-1"].hot_swap is False
+    assert slots["SATA-1"].shared_power_group == "SABRENT SATA"
+    assert slots["SATA-2"].hot_swap is False
+    assert slots["SATA-2"].shared_power_group == "SABRENT SATA"
+    assert slots["SATA-1"].id_path.endswith("usb-0:4.4.4.4:1.0-scsi-0:0:0:0")
+    assert slots["SATA-2"].id_path.endswith("usb-0:4.4.4.4:1.0-scsi-0:0:0:1")
+    # SUITOK wipe-only
+    assert slots["SUITOK-1"].bridge == "rtl9210"
+    assert slots["SUITOK-2"].bridge == "rtl9210"
+    assert slots["SUITOK-3"].bridge == "rtl9220"
+    assert slots["SUITOK-4"].id_path.startswith("UNMAPPED-")
     assert slots["M2-1"].bridge == "rtl9220"
+    # StarTech 4-bay not on hub yet
+    assert slots["QUAD-1"].id_path.startswith("UNMAPPED-")
+    assert slots["QUAD-1"].shared_power_group == "STARTECH 4BAY"
 
 
 def test_missing_file_raises(tmp_path: Path):

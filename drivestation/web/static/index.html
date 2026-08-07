@@ -108,6 +108,8 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    container-type: inline-size;
+    container-name: slot;
   }
   .tile.solid { background: var(--card); border: 1px solid #101113; }
   .tile.ghost { background: transparent; border: 1px dashed var(--ghost); color: #8d9199; }
@@ -115,88 +117,126 @@
   .tilebar {
     flex: 0 0 auto;
     display: flex; justify-content: space-between; align-items: center;
-    gap: 6px; padding: 6px 10px 5px; flex-wrap: wrap;
+    gap: 8px; padding: 8px 12px 7px; flex-wrap: wrap;
   }
   .solid .tilebar { border-bottom: 1px solid var(--card-line); }
-  .tilebar .id { font-size: 12px; font-weight: 800; letter-spacing: .6px; }
+  .tilebar .id { font-size: 15px; font-weight: 800; letter-spacing: .4px; }
   .tilebar .iface {
-    font-size: 9px; font-weight: 700; letter-spacing: 1px;
+    font-size: 11px; font-weight: 700; letter-spacing: 1px;
     color: var(--muted); border: 1px solid var(--card-line);
-    padding: 1px 5px; text-transform: uppercase;
+    padding: 2px 7px; text-transform: uppercase;
   }
   .tilebar .guard {
-    font-size: 9px; font-weight: 800; letter-spacing: .5px;
+    font-size: 11px; font-weight: 800; letter-spacing: .4px;
     color: #141414; background: var(--work);
-    padding: 2px 5px; animation: blink 1.2s step-end infinite;
+    padding: 3px 7px; animation: blink 1.2s step-end infinite;
   }
   .tilebar .badge {
-    font-size: 9px; font-weight: 800; letter-spacing: .5px;
-    color: #fff; background: #5a3d1a; padding: 2px 5px;
+    font-size: 11px; font-weight: 800; letter-spacing: .4px;
+    color: #fff; background: #5a3d1a; padding: 3px 7px;
   }
   .tilebar .badge.queue { background: var(--active); }
   .ghost .tilebar .guard { color: #141414; }
 
+  /*
+    Tile body: hero (model + health) → id row → metrics grid → plan/flags.
+    Metrics share leftover height via space-evenly; type never shrinks.
+  */
   .data {
     flex: 1 1 auto; min-height: 0;
-    padding: 6px 10px 4px;
-    display: flex; flex-direction: column; gap: 2px;
+    padding: 10px 14px 8px;
+    display: flex; flex-direction: column; gap: 10px;
     overflow: hidden;
   }
-  /* Identity left + SMART right — Powered/Cycles/Written never sit under the fold. */
-  .data.split {
+  .hero {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    gap: 14px; flex: 0 0 auto;
+  }
+  .hero .model {
+    font-size: 21px; font-weight: 800; line-height: 1.2;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    min-width: 0; flex: 1 1 auto; padding-top: 2px;
+  }
+  .hero .health-block {
+    flex: 0 1 42%; min-width: 140px; text-align: right;
+  }
+  .hero .health {
+    font-size: 21px; font-weight: 800; line-height: 1.2;
+    white-space: nowrap;
+  }
+  .hero .flagline {
+    margin-top: 4px;
+    font-size: 13px; font-weight: 700; line-height: 1.25;
+    color: var(--alarm);
+  }
+  .idrow {
     display: grid;
-    grid-template-columns: minmax(0, 1.4fr) minmax(168px, 1fr);
-    gap: 6px 12px;
-    align-content: start;
+    grid-template-columns: 1.4fr 0.7fr 1fr;
+    gap: 10px 16px;
+    flex: 0 0 auto;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--card-line);
   }
-  .data.split .idblock {
-    display: flex; flex-direction: column; gap: 2px; min-width: 0;
-  }
-  .row { display: grid; grid-template-columns: 52px 1fr; align-items: baseline; gap: 4px; }
-  .row .k {
-    font-size: 8px; font-weight: 600; letter-spacing: .6px;
-    color: var(--muted); text-transform: uppercase;
-  }
-  .row .v {
-    font-size: 11px; font-weight: 500; overflow: hidden;
-    text-overflow: ellipsis; white-space: nowrap; min-width: 0;
-  }
-  .row .v.model { font-weight: 700; font-size: 12px; }
-  .row .v.mono { font-family: "Cascadia Mono", Consolas, monospace; font-size: 10px; }
-  .row .v.flags { font-size: 10px; white-space: normal; line-height: 1.2; }
-  .telem {
+  .metrics {
+    flex: 1 1 auto; min-height: 0;
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 4px 10px;
-    align-content: start;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    align-content: space-evenly;
+    column-gap: 14px;
+    row-gap: 10px;
+    overflow: hidden;
+  }
+  @container slot (max-width: 520px) {
+    .metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .idrow { grid-template-columns: 1fr 1fr; }
+    .idrow .fact:last-child { grid-column: 1 / -1; }
+  }
+  @container slot (max-width: 360px) {
+    .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .hero .model { font-size: 17px; }
+    .hero .health { font-size: 17px; }
+  }
+  .fact {
+    display: flex; flex-direction: column; gap: 3px;
     min-width: 0;
-    padding-left: 10px;
-    border-left: 1px solid var(--card-line);
   }
-  .telem span {
-    display: flex; flex-direction: column; gap: 0;
-    min-width: 0;
+  .fact.wide {
+    grid-column: 1 / -1;
+    padding-top: 6px;
+    border-top: 1px solid var(--card-line);
   }
-  .telem .k {
-    font-size: 8px; font-weight: 600; letter-spacing: .5px;
-    color: var(--muted); text-transform: uppercase;
+  .fact .k {
+    font-size: 13px; font-weight: 700; letter-spacing: .6px;
+    color: var(--muted); text-transform: uppercase; line-height: 1.1;
   }
-  .telem .v {
+  .fact .v {
+    font-size: 18px; font-weight: 700; line-height: 1.2;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    min-width: 0; color: var(--ink);
+  }
+  .fact .v.mono {
     font-family: "Cascadia Mono", Consolas, monospace;
-    font-size: 12px; font-weight: 700; color: var(--ink);
+    font-size: 17px; font-weight: 700;
+  }
+  .method {
+    flex: 0 0 auto;
+    font-size: 14px; font-weight: 700; letter-spacing: .3px;
+    color: var(--muted); text-transform: uppercase;
+    padding-top: 4px;
+    border-top: 1px solid var(--card-line);
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
-  .v.h-GOOD { color: var(--ok); font-weight: 700; }
-  .v.h-WARNING, .v.h-UNKNOWN { color: #96660a; font-weight: 700; }
-  .v.h-SCRAP, .v.h-FAIL { color: var(--alarm); font-weight: 700; }
+  .v.h-GOOD { color: var(--ok); font-weight: 800; }
+  .v.h-WARNING, .v.h-UNKNOWN { color: #96660a; font-weight: 800; }
+  .v.h-SCRAP, .v.h-FAIL { color: var(--alarm); font-weight: 800; }
   a.listing {
     color: var(--active); font-family: "Cascadia Mono", Consolas, monospace;
-    font-size: 11px; font-weight: 700; text-decoration: none;
+    font-size: 15px; font-weight: 700; text-decoration: none;
   }
 
   .nodevice {
     flex: 1; display: flex; align-items: center; justify-content: center;
-    font-size: 10px; font-weight: 700; letter-spacing: 2px;
+    font-size: 14px; font-weight: 750; letter-spacing: 2px;
   }
   .solid .nodevice { color: var(--muted); }
 
@@ -216,10 +256,10 @@
   .prog .bar { height: 5px; background: #dddddad9; }
   .prog .bar > div { height: 100%; background: var(--work); transition: width .4s linear; }
 
-  .foot { flex: 0 0 auto; padding: 6px 10px 7px; }
-  .foot .word { font-size: 12px; font-weight: 800; letter-spacing: 1.5px; }
+  .foot { flex: 0 0 auto; padding: 8px 12px 9px; }
+  .foot .word { font-size: 14px; font-weight: 800; letter-spacing: 1.4px; }
   .foot .note {
-    font-size: 10px; font-weight: 500; margin-top: 1px;
+    font-size: 12px; font-weight: 550; margin-top: 2px;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .ghost .foot { color: #8d9199; }
@@ -233,20 +273,20 @@
   .foot.FAILED, .foot.ERROR { background: var(--alarm); color: #fff; border-top: none; }
 
   .ask {
-    flex: 0 0 auto; margin-top: auto;
-    padding: 4px 8px 6px; border-top: 1px solid var(--card-line);
+    flex: 0 0 auto;
+    padding: 8px 12px 10px; border-top: 1px solid var(--card-line);
   }
   .ask .q {
-    font-size: 8px; font-weight: 600; letter-spacing: .6px;
-    color: var(--muted); text-transform: uppercase; margin-bottom: 4px;
+    font-size: 12px; font-weight: 650; letter-spacing: .5px;
+    color: var(--muted); text-transform: uppercase; margin-bottom: 6px;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
-  .buttons { display: flex; gap: 5px; flex-wrap: wrap; }
+  .buttons { display: flex; gap: 8px; flex-wrap: wrap; }
   button.act {
-    flex: 1 1 auto; min-width: 0; height: 30px;
-    font-size: 10px; font-weight: 700; letter-spacing: 1px;
+    flex: 1 1 0; min-width: 0; height: 42px;
+    font-size: 13px; font-weight: 750; letter-spacing: 1px;
     cursor: pointer; font-family: inherit; border: 1px solid transparent;
-    padding: 0 5px;
+    padding: 0 8px;
   }
   .yes { background: var(--ok); color: #fff; }
   .yes:active { background: #0f5e2c; }
@@ -314,9 +354,9 @@ const TB = 1e12;
 /* One screen: grade + wipe bands. Names match the physical docks.
    `flex` weights vertical space — NVMe grade tiles need room for SMART rows. */
 const BANDS = [
-  { title: "GRADE — STARTECH NVME", groups: ["NVME GRADE"], cols: 2, flex: 3.2 },
-  { title: "GRADE — SABRENT SATA / M.2", groups: ["SABRENT SATA", "M.2 DOCK"], cols: 3, flex: 2.6 },
-  { title: "WIPE — SUITOK", groups: ["SUITOK"], cols: 4, wipe: true, flex: 2.0 },
+  { title: "GRADE — STARTECH NVME", groups: ["NVME GRADE"], cols: 2, flex: 3.4 },
+  { title: "GRADE — SABRENT SATA / M.2", groups: ["SABRENT SATA", "M.2 DOCK"], cols: 3, flex: 2.8 },
+  { title: "WIPE — SUITOK", groups: ["SUITOK"], cols: 4, wipe: true, flex: 1.8 },
   // Hidden until the 4-bay is on the hub (all QUAD-* still UNMAPPED).
   // { title: "SATA — STARTECH 4BAY", groups: ["STARTECH 4BAY"], cols: 4 },
 ];
@@ -374,8 +414,9 @@ async function post(url, body, btn) {
   }
 }
 
-function row(k, v, cls = "") {
-  return `<div class="row"><span class="k">${k}</span><span class="v ${cls}">${v}</span></div>`;
+function fact(k, v, cls = "", wide = false) {
+  const w = wide ? " wide" : "";
+  return `<div class="fact${w}"><span class="k">${k}</span><span class="v ${cls}">${v}</span></div>`;
 }
 
 const SHARED_POWER_GROUPS = ["SABRENT SATA"];
@@ -407,33 +448,45 @@ function tileHTML(s, busyByGroup) {
   let body = "";
   if (d) {
     const details = (h && h.details) || [];
-    let id = "";
-    id += row("Model", `${d.manufacturer} ${d.model}`, "model");
-    id += row("Serial", d.serial, "mono");
-    id += row("Size", d.capacity);
-    if (s.usage && s.usage.label) id += row("Data", s.usage.label);
-    if (h) {
-      const pct = h.percent === null ? "" : `${h.percent}% `;
-      id += row("Health", `${pct}${h.verdict}`, `h-${h.verdict}`);
-      const busy = s.status === "WIPING" || s.status === "VERIFYING";
-      if (h.warnings.length && !busy) id += row("Flags", h.warnings.join(" · "), "flags");
-    }
-    if (s.wipe_method) {
-      const label = s.status === "READY" ? "Plan" : "Method";
-      id += row(label, s.wipe_method.replaceAll("_", " "), "mono");
-    }
+    const pct = h && h.percent !== null && h.percent !== undefined
+      ? `${h.percent}% ` : "";
+    const healthCls = h ? `health h-${h.verdict}` : "health";
+    const healthTxt = h ? `${pct}${h.verdict}` : "—";
+    const idBits = [
+      fact("Serial", d.serial, "mono"),
+      fact("Size", d.capacity, "mono"),
+      fact("Data", (s.usage && s.usage.label) ? s.usage.label : "—"),
+    ].join("");
+    const metricBits = details.map(x => fact(x.k, x.v, "mono"));
     if (s.status === "PASSED") {
-      id += row("Result", "WIPED · VERIFIED EMPTY", "h-GOOD");
-      id += row("Card", `<a class="listing" href="/d/${encodeURIComponent(d.serial)}">/d/${d.serial}</a>`);
+      metricBits.push(fact("Result", "WIPED · VERIFIED EMPTY", "h-GOOD", true));
+      metricBits.push(fact(
+        "Card",
+        `<a class="listing" href="/d/${encodeURIComponent(d.serial)}">/d/${d.serial}</a>`,
+        "", true));
     }
-    if (details.length) {
-      const telem = details.map(x =>
-        `<span><span class="k">${x.k}</span><span class="v">${x.v}</span></span>`
-      ).join("");
-      body = `<div class="data split"><div class="idblock">${id}</div><div class="telem">${telem}</div></div>`;
-    } else {
-      body = `<div class="data">${id}</div>`;
+    let flagline = "";
+    if (h) {
+      const busy = s.status === "WIPING" || s.status === "VERIFYING";
+      if (h.warnings.length && !busy) {
+        flagline = `<div class="flagline">${h.warnings.join(" · ")}</div>`;
+      }
     }
+    const method = s.wipe_method
+      ? `<div class="method">${s.status === "READY" ? "Plan" : "Method"} · ${s.wipe_method.replaceAll("_", " ")}</div>`
+      : "";
+    body = `<div class="data">
+      <div class="hero">
+        <div class="model">${d.manufacturer} ${d.model}</div>
+        <div class="health-block">
+          <div class="${healthCls}">${healthTxt}</div>
+          ${flagline}
+        </div>
+      </div>
+      <div class="idrow">${idBits}</div>
+      ${metricBits.length ? `<div class="metrics">${metricBits.join("")}</div>` : ""}
+      ${method}
+    </div>`;
   } else if (s.status === "DETECTED" || s.status === "CHECKING") {
     body = `<div class="nodevice">IDENTIFYING</div>`;
   } else {

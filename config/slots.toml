@@ -22,27 +22,27 @@ bridge = "asm2362"
 hot_swap = true
 
 # --- StarTech SDOCK4U313 4-bay SATA (hot-swap) ------------------------------
-# Paths filled by: sudo tools/dock_characterize.sh --quad
+# Mapped 2026-08-07 --quad (size→bay: ~256/512/1000/2000 → SATA-1..4)
 [slots.SATA-1]
-id_path = "UNMAPPED-SATA-1"
+id_path = "pci-0000:00:14.0-usb-0:8.4.4.4.3:1.0-scsi-0:0:0:0"
 bridge = "asmedia_sata"
 hot_swap = true
 shared_power_group = "STARTECH SATA"
 
 [slots.SATA-2]
-id_path = "UNMAPPED-SATA-2"
+id_path = "pci-0000:00:14.0-usb-0:8.4.4.4.4:1.0-scsi-0:0:0:0"
 bridge = "asmedia_sata"
 hot_swap = true
 shared_power_group = "STARTECH SATA"
 
 [slots.SATA-3]
-id_path = "UNMAPPED-SATA-3"
+id_path = "pci-0000:00:14.0-usb-0:8.4.4.4.2:1.0-scsi-0:0:0:0"
 bridge = "asmedia_sata"
 hot_swap = true
 shared_power_group = "STARTECH SATA"
 
 [slots.SATA-4]
-id_path = "UNMAPPED-SATA-4"
+id_path = "pci-0000:00:14.0-usb-0:8.4.4.4.1:1.0-scsi-0:0:0:0"
 bridge = "asmedia_sata"
 hot_swap = true
 shared_power_group = "STARTECH SATA"

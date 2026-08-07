@@ -15,12 +15,16 @@ def test_default_slots_toml_loads_and_matches_layout():
     assert slots["NVME-A1"].bridge == "asm2362"
     assert slots["NVME-B1"].bridge == "asm2362"
     assert slots["NVME-A1"].hot_swap is True
-    # StarTech 4-bay SATA — hot-swap; paths from --quad after dock is on hub.
+    # StarTech 4-bay SATA — hot-swap; 2026-08-07 --quad map.
     for sid in ("SATA-1", "SATA-2", "SATA-3", "SATA-4"):
         assert slots[sid].bridge == "asmedia_sata"
         assert slots[sid].hot_swap is True
         assert slots[sid].shared_power_group == "STARTECH SATA"
-        assert slots[sid].id_path.startswith("UNMAPPED-")
+        assert "usb-0:8.4.4.4." in slots[sid].id_path
+    assert slots["SATA-1"].id_path.endswith("usb-0:8.4.4.4.3:1.0-scsi-0:0:0:0")
+    assert slots["SATA-2"].id_path.endswith("usb-0:8.4.4.4.4:1.0-scsi-0:0:0:0")
+    assert slots["SATA-3"].id_path.endswith("usb-0:8.4.4.4.2:1.0-scsi-0:0:0:0")
+    assert slots["SATA-4"].id_path.endswith("usb-0:8.4.4.4.1:1.0-scsi-0:0:0:0")
     # SUITOK wipe-only (both duals on hub port 4.4.x)
     assert slots["SUITOK-1"].bridge == "rtl9210"
     assert slots["SUITOK-1"].id_path.endswith("usb-0:4.4.3.1:1.0-scsi-0:0:0:0")

@@ -24,9 +24,11 @@ from .wipe_linux import (ata_enhanced_erase, verify_ata_erase, verify_zeros,
 
 log = logging.getLogger("drivestation.linux")
 
-# USB bridges (RTL9210/ASM) often vanish for 1–3s mid-overwrite. Don't treat
-# that as a yank until the slot has been continuously missing this long.
-_REMOVE_DEBOUNCE_S = 5.0
+# How long a slot must stay missing before we clear the board tile.
+# Short so real yanks disappear quickly. Mid-wipe USB blips are handled
+# elsewhere: Station ignores insert/remove while WIPING/VERIFYING, and
+# _still_present() retries for _PRESENT_RETRY_S.
+_REMOVE_DEBOUNCE_S = float(os.environ.get("DRIVESTATION_REMOVE_DEBOUNCE", "1.0"))
 _PRESENT_RETRY_S = 3.0
 
 
@@ -37,7 +39,7 @@ class LinuxBackend(HardwareBackend):
         self,
         slots_path: Optional[Path] = None,
         run_cmd: RunCmd = default_run_cmd,
-        poll_interval: float = 2.0,
+        poll_interval: float = 1.0,
         use_pyudev: bool = True,
     ):
         try:

@@ -57,26 +57,25 @@ bridge = "asm2362"
 hot_swap = true
 
 # --- SUITOK dual NVMe (WIPE ONLY — RTL9210) --------------------------------
-# Remapped 2026-08-07 after USB tree recovery: only one RTL9210 is on the bus
-# (port 8 branch, next to M2-1). C2/D1/D2 stay UNMAPPED until those docks
-# enumerate again — then: sudo tools/dock_characterize.sh
+# Phase 0 paths on hub port 4.4.2 / 4.4.3 (NOT the port-8 RTL9220 branch).
+# Verified 2026-08-07: drive on C1 path 4.4.3.1 (/dev/sdg).
 [slots.NVME-C1]
-id_path = "pci-0000:00:14.0-usb-0:8.4.2.1:1.0-scsi-0:0:0:0"
+id_path = "pci-0000:00:14.0-usb-0:4.4.3.1:1.0-scsi-0:0:0:0"
 bridge = "rtl9210"
 hot_swap = true
 
 [slots.NVME-C2]
-id_path = "UNMAPPED-NVME-C2"
+id_path = "pci-0000:00:14.0-usb-0:4.4.3.2:1.0-scsi-0:0:0:0"
 bridge = "rtl9210"
 hot_swap = true
 
 [slots.NVME-D1]
-id_path = "UNMAPPED-NVME-D1"
+id_path = "pci-0000:00:14.0-usb-0:4.4.2.1:1.0-scsi-0:0:0:0"
 bridge = "rtl9210"
 hot_swap = true
 
 [slots.NVME-D2]
-id_path = "UNMAPPED-NVME-D2"
+id_path = "pci-0000:00:14.0-usb-0:4.4.2.2:1.0-scsi-0:0:0:0"
 bridge = "rtl9210"
 hot_swap = true
 

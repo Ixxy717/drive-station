@@ -56,30 +56,31 @@ id_path = "pci-0000:00:14.0-usb-0:4.4.4.2:1.0-scsi-0:0:0:0"
 bridge = "asm2362"
 hot_swap = true
 
-# --- SUITOK dual NVMe (WIPE ONLY — RTL9210) --------------------------------
-# Phase 0 paths on hub port 4.4.2 / 4.4.3 (NOT the port-8 RTL9220 branch).
-# Verified 2026-08-07: drive on C1 path 4.4.3.1 (/dev/sdg).
+# --- WIPE ONLY dual bays on hub port 8 (live 2026-08-07) -------------------
+# These enumerate as RTL9220 (not RTL9210). Dual LUN dock = C1/C2; extra bay = D1.
+# Classic SUITOK RTL9210 on 4.4.3.* is NOT on the bus right now — when it
+# returns, put it on D2 (or re-run tools/dock_characterize.sh).
 [slots.NVME-C1]
+id_path = "pci-0000:00:14.0-usb-0:8.4.2.1:1.0-scsi-0:0:0:0"
+bridge = "rtl9220"
+hot_swap = true
+
+[slots.NVME-C2]
+id_path = "pci-0000:00:14.0-usb-0:8.4.2.2:1.0-scsi-0:0:0:0"
+bridge = "rtl9220"
+hot_swap = true
+
+[slots.NVME-D1]
+id_path = "pci-0000:00:14.0-usb-0:8.4.3.2:1.0-scsi-0:0:0:0"
+bridge = "rtl9220"
+hot_swap = true
+
+[slots.NVME-D2]
 id_path = "pci-0000:00:14.0-usb-0:4.4.3.1:1.0-scsi-0:0:0:0"
 bridge = "rtl9210"
 hot_swap = true
 
-[slots.NVME-C2]
-id_path = "pci-0000:00:14.0-usb-0:4.4.3.2:1.0-scsi-0:0:0:0"
-bridge = "rtl9210"
-hot_swap = true
-
-[slots.NVME-D1]
-id_path = "pci-0000:00:14.0-usb-0:4.4.2.1:1.0-scsi-0:0:0:0"
-bridge = "rtl9210"
-hot_swap = true
-
-[slots.NVME-D2]
-id_path = "pci-0000:00:14.0-usb-0:4.4.2.2:1.0-scsi-0:0:0:0"
-bridge = "rtl9210"
-hot_swap = true
-
-# --- M.2 dual dock bay 1 (RTL9220) — mapped 2026-08-06 --------------------
+# --- M.2 bay (RTL9220DP) — mapped 2026-08-06 / confirmed 2026-08-07 -------
 [slots.M2-1]
 id_path = "pci-0000:00:14.0-usb-0:8.4.4.3:1.0-scsi-0:0:0:0"
 bridge = "rtl9220"

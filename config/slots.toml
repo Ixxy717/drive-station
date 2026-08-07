@@ -1,12 +1,8 @@
-# Slot ↔ USB path map. Do not move dock cables after mapping.
-#
-# Remap helpers (on the mini PC):
-#   sudo tools/dock_characterize.sh --quad   # StarTech 4-bay → SATA-1..4
-#   sudo tools/dock_characterize.sh --dual   # Sabrent 2-bay → SATA-5/6
-#   sudo tools/dock_characterize.sh          # NVMe / M.2 / SUITOK seats
+# Slot ↔ USB path map. Remapped from live bus 2026-08-07.
+# Do not move dock cables after this. Re-run: sudo tools/dock_characterize.sh
 # Override with DRIVESTATION_SLOTS=/path/to/slots.toml
 
-# --- StarTech SDOCK4U313 (primary SATA) — not on hub yet -------------------
+# --- StarTech SDOCK4U313 4-bay — not on hub yet ----------------------------
 [slots.SATA-1]
 id_path = "UNMAPPED-SATA-1"
 bridge = "asmedia_sata"
@@ -31,7 +27,7 @@ bridge = "asmedia_sata"
 hot_swap = true
 shared_power_group = "STARTECH 4BAY"
 
-# --- Sabrent dual SATA (mapped 2026-07-29; path reconfirmed 2026-08-06) -----
+# --- Sabrent dual SATA (ASMedia 174c:55aa) on hub 4.4.4.4 ------------------
 [slots.SATA-5]
 id_path = "pci-0000:00:14.0-usb-0:4.4.4.4:1.0-scsi-0:0:0:0"
 bridge = "asmedia_sata"
@@ -44,8 +40,8 @@ bridge = "asmedia_sata"
 hot_swap = false
 shared_power_group = "SATA DOCK"
 
-# --- StarTech NVMe toasters (ASM2362 / sntasmedia) -------------------------
-# Characterized 2026-08-06: 1USB3-NVME-DOCK (14b0:020d).
+# --- StarTech NVMe toasters (14b0:020d / ASM2362) on hub 4.4.4 -------------
+# A1 serial …937, B1 serial …93B. Empty bays stay size=0 until NVMe seats.
 [slots.NVME-A1]
 id_path = "pci-0000:00:14.0-usb-0:4.4.4.1:1.0-scsi-0:0:0:0"
 bridge = "asm2362"
@@ -56,18 +52,17 @@ id_path = "pci-0000:00:14.0-usb-0:4.4.4.2:1.0-scsi-0:0:0:0"
 bridge = "asm2362"
 hot_swap = true
 
-# --- WIPE ONLY dual bays on hub port 8 (live 2026-08-07) -------------------
-# These enumerate as RTL9220 (not RTL9210). Dual LUN dock = C1/C2; extra bay = D1.
-# Classic SUITOK RTL9210 on 4.4.3.* is NOT on the bus right now — when it
-# returns, put it on D2 (or re-run tools/dock_characterize.sh).
+# --- SUITOK / wipe RTL9210 (0bda:9210) ------------------------------------
+# C1 = USB3 path with media right now (Intel on 4.4.2.1).
+# C2 = second RTL9210 currently on USB2 (8.4.2.2).
 [slots.NVME-C1]
-id_path = "pci-0000:00:14.0-usb-0:8.4.2.1:1.0-scsi-0:0:0:0"
-bridge = "rtl9220"
+id_path = "pci-0000:00:14.0-usb-0:4.4.2.1:1.0-scsi-0:0:0:0"
+bridge = "rtl9210"
 hot_swap = true
 
 [slots.NVME-C2]
 id_path = "pci-0000:00:14.0-usb-0:8.4.2.2:1.0-scsi-0:0:0:0"
-bridge = "rtl9220"
+bridge = "rtl9210"
 hot_swap = true
 
 [slots.NVME-D1]
@@ -76,11 +71,11 @@ bridge = "rtl9220"
 hot_swap = true
 
 [slots.NVME-D2]
-id_path = "pci-0000:00:14.0-usb-0:4.4.3.1:1.0-scsi-0:0:0:0"
+id_path = "UNMAPPED-NVME-D2"
 bridge = "rtl9210"
 hot_swap = true
 
-# --- M.2 bay (RTL9220DP) — mapped 2026-08-06 / confirmed 2026-08-07 -------
+# --- M.2 dock bay (RTL9220DP) ---------------------------------------------
 [slots.M2-1]
 id_path = "pci-0000:00:14.0-usb-0:8.4.4.3:1.0-scsi-0:0:0:0"
 bridge = "rtl9220"

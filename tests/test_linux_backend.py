@@ -190,6 +190,36 @@ def test_sata_frozen_falls_back_to_overwrite(tmp_path):
     backend.stop()
 
 
+def test_sata_locked_still_offers_ata_erase(tmp_path):
+    """Locked drives get ATA erase (NULL bypass) then overwrite — not blocked."""
+    slots = load_slots_config()
+    table = MutableDeviceTable([{
+        "name": "sdc", "size": 251_000_193_024,
+        "id_path": slots["SATA-1"].id_path,
+    }])
+
+    def run(argv):
+        if argv[0] == "smartctl":
+            return 0, json.dumps(_smart_identity()), ""
+        if argv[0] == "hdparm":
+            return 0, (
+                "Security:\n"
+                "\tenabled\n"
+                "\tlocked\n"
+                "\tnot\tfrozen\n"
+                "\tsupported: enhanced erase\n"
+            ), ""
+        return table.run(argv)
+
+    backend = LinuxBackend(run_cmd=run, poll_interval=60, use_pyudev=False)
+    backend.start(lambda s: None, lambda s: None)
+    backend._reconcile()
+    methods = backend.supported_wipe_methods("SATA-1")
+    assert WipeMethod.ATA_SECURE_ERASE_ENHANCED in methods
+    assert WipeMethod.ZERO_OVERWRITE in methods
+    backend.stop()
+
+
 def test_station_ready_through_linux_backend(tmp_path):
     slots = load_slots_config()
     table = MutableDeviceTable([{

@@ -292,16 +292,13 @@ class LinuxBackend(HardwareBackend):
             return [WipeMethod.ZERO_OVERWRITE]
 
         # ASMedia SATA + RTL9220 SATA media: enhanced erase when available.
-        # Locked drives need a user password we don't have — overwrite only
-        # (and even that may I/O-error until unlocked).
+        # Locked drives: still offer ATA erase (NULL-password bypass attempt)
+        # then zero overwrite as fallback.
         if cfg.bridge in ("asmedia_sata", "rtl9220"):
             state = ata_security_state(path, self._run)
-            if state.get("locked"):
-                return [WipeMethod.ZERO_OVERWRITE]
             if state["enhanced_erase"] and not state["frozen"]:
                 methods.append(WipeMethod.ATA_SECURE_ERASE_ENHANCED)
             if not state["frozen"]:
-                # normal erase as secondary if enhanced missing
                 if WipeMethod.ATA_SECURE_ERASE_ENHANCED not in methods:
                     methods.append(WipeMethod.ATA_SECURE_ERASE)
             methods.append(WipeMethod.ZERO_OVERWRITE)
@@ -318,9 +315,20 @@ class LinuxBackend(HardwareBackend):
 
         if method in (WipeMethod.ATA_SECURE_ERASE_ENHANCED,
                       WipeMethod.ATA_SECURE_ERASE):
-            # v1: only enhanced path implemented; map normal to enhanced attempt
-            ata_enhanced_erase(path, progress, self._run, poll_present=poll)
-            return
+            try:
+                ata_enhanced_erase(path, progress, self._run, poll_present=poll)
+                return
+            except WipeError as exc:
+                # Locked/failed ATA path → still try overwrite so the bay
+                # is not a dead end when security flags block set-pass.
+                msg = str(exc).lower()
+                if "locked" in msg or "frozen" in msg:
+                    log.warning(
+                        "ATA erase failed on %s (%s); falling back to overwrite",
+                        slot_id, exc)
+                    zero_overwrite(path, progress, self._run, poll_present=poll)
+                    return
+                raise
         if method == WipeMethod.ZERO_OVERWRITE:
             zero_overwrite(path, progress, self._run, poll_present=poll)
             return

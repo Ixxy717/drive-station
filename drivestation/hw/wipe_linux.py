@@ -257,6 +257,31 @@ def verify_zeros(
     progress(1.0)
 
 
+def _run_ata_erase_cmd(
+    argv: list[str],
+    progress: ProgressCallback,
+    present: PresentFn,
+) -> tuple[int, str, str]:
+    """Run long-running hdparm erase; pulse progress; kill if yanked."""
+    import subprocess
+    try:
+        proc = subprocess.Popen(
+            argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    except FileNotFoundError as exc:
+        raise WipeError("hdparm not found") from exc
+
+    t0 = time.monotonic()
+    while proc.poll() is None:
+        if not present():
+            proc.kill()
+            raise DriveDisconnected(f"device disappeared during ATA erase")
+        elapsed = time.monotonic() - t0
+        progress(min(0.95, 0.1 + elapsed / (elapsed + 120) * 0.85))
+        time.sleep(1.0)
+    stdout, stderr = proc.communicate()
+    return proc.returncode, stdout or "", stderr or ""
+
+
 def ata_enhanced_erase(
     dev_path: str,
     progress: ProgressCallback,
@@ -264,7 +289,11 @@ def ata_enhanced_erase(
     poll_present: Optional[PresentFn] = None,
 ) -> str:
     """
-    Run ATA SECURITY ERASE ENHANCED.
+    Run ATA SECURITY ERASE ENHANCED (or normal erase as fallback).
+
+    Locked drives (unknown prior password): skip set-pass and try erase with
+    NULL / empty / station password on user and master accounts — that is the
+    only software path that can clear a locked volume without the old password.
     Returns verify_mode label for logging: 'ata_erase_status'.
     """
     present = poll_present or (lambda: _device_present(dev_path))
@@ -274,11 +303,47 @@ def ata_enhanced_erase(
     state = ata_security_state(dev_path, run)
     if state["frozen"]:
         raise WipeError("ATA security is frozen — power-cycle the dock and retry")
-    if not state["enhanced_erase"]:
-        raise WipeError("ATA enhanced erase not supported on this drive")
+    enhanced = bool(state.get("enhanced_erase"))
+    locked = bool(state.get("locked"))
 
     unmount_disk(dev_path, run)
     progress(0.05)
+
+    erase_flags = (
+        ("--security-erase-enhanced",) if enhanced
+        else ("--security-erase",)
+    )
+    # Prefer enhanced; if locked attempts fail, also try normal erase.
+    erase_variants: list[tuple[str, ...]] = [erase_flags]
+    if enhanced:
+        erase_variants.append(("--security-erase",))
+
+    if locked:
+        # Already password-locked — cannot set-pass. Try common empty passwords.
+        attempts: list[tuple[str, str]] = []
+        for pw in ("NULL", "", ATA_PASSWORD):
+            for um in ("u", "m"):
+                attempts.append((um, pw))
+        last_err = "locked erase failed"
+        for i, (um, pw) in enumerate(attempts):
+            for flags in erase_variants:
+                argv = [
+                    "hdparm", "--user-master", um, *flags, pw, dev_path,
+                ]
+                log.info("ATA locked erase try: %s", " ".join(argv[:-1] + ["***"]))
+                code, out, err = _run_ata_erase_cmd(argv, progress, present)
+                if code == 0:
+                    if not present():
+                        raise DriveDisconnected(
+                            f"{dev_path} missing after ATA erase")
+                    progress(1.0)
+                    return "ata_erase_status"
+                last_err = err or out or f"exit {code}"
+            progress(0.05 + 0.05 * (i + 1) / max(1, len(attempts)))
+        raise WipeError(
+            f"ATA LOCKED — erase bypass failed ({last_err}). "
+            "Overwrite may also fail; scrap if I/O errors persist."
+        )
 
     code, out, err = run([
         "hdparm", "--user-master", "u",
@@ -288,38 +353,17 @@ def ata_enhanced_erase(
         raise WipeError(f"security-set-pass failed: {err or out}")
 
     progress(0.1)
-    # Long-running; use Popen so we can poll presence.
-    import subprocess
     argv = [
         "hdparm", "--user-master", "u",
-        "--security-erase-enhanced", ATA_PASSWORD, dev_path,
+        erase_flags[0], ATA_PASSWORD, dev_path,
     ]
-    try:
-        proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    except FileNotFoundError as exc:
-        raise WipeError("hdparm not found") from exc
-
-    # Pulse progress while waiting (no real %).
-    t0 = time.monotonic()
-    while proc.poll() is None:
-        if not present():
-            proc.kill()
-            raise DriveDisconnected(f"{dev_path} disappeared during ATA erase")
-        elapsed = time.monotonic() - t0
-        # Asymptotic crawl toward 0.95
-        progress(min(0.95, 0.1 + elapsed / (elapsed + 120) * 0.85))
-        time.sleep(1.0)
-
-    stdout, stderr = proc.communicate()
-    if proc.returncode != 0:
-        # Try to unlock
+    code, out, err = _run_ata_erase_cmd(argv, progress, present)
+    if code != 0:
         run([
             "hdparm", "--user-master", "u",
             "--security-disable", ATA_PASSWORD, dev_path,
         ])
-        raise WipeError(
-            f"security-erase-enhanced failed: {stderr or stdout}"
-        )
+        raise WipeError(f"security erase failed: {err or out}")
 
     if not present():
         raise DriveDisconnected(f"{dev_path} missing after ATA erase")

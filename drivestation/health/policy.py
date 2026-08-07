@@ -99,8 +99,8 @@ THRESHOLDS = {
     "sas_defects_scrap_above": 5,
 }
 
-FROZEN_WARNING = "ATA security frozen — replug dock for fast secure erase"
-LOCKED_WARNING = "ATA security LOCKED — password required; wipe may fail"
+FROZEN_WARNING = "ATA security frozen — overwrite wipe (replug for fast erase)"
+LOCKED_WARNING = "ATA security LOCKED — will attempt erase bypass / overwrite"
 
 
 def evaluate_health(info: DriveInfo, raw: dict) -> HealthResult:

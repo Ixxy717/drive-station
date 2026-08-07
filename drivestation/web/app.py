@@ -132,6 +132,27 @@ def state() -> dict:
     }
 
 
+@app.get("/api/debug/hw")
+def hw_debug() -> dict:
+    """Evidence ladder: USB disks vs allowlist vs station presence."""
+    busy = [
+        s["slot_id"] for s in station.snapshot()
+        if s["status"] in ("WIPING", "VERIFYING")
+    ]
+    payload: dict = {
+        "mode": MODE,
+        "active_wipes": station.active_wipes(),
+        "busy_slots": busy,
+        "pending_wipes": station.pending_wipes(),
+    }
+    dbg = getattr(backend, "hw_debug", None)
+    if callable(dbg):
+        payload.update(dbg())
+    else:
+        payload["note"] = "simulator backend — no live USB map"
+    return payload
+
+
 @app.get("/api/debug/kiosk", response_class=PlainTextResponse)
 def kiosk_debug_dump() -> str:
     """Latest sudo debugkiosk dump — readable from the LAN after a black screen."""

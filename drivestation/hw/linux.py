@@ -110,8 +110,13 @@ class LinuxBackend(HardwareBackend):
             old_slots = set(self._present.keys())
             new_slots = set(found.keys())
 
-            # Back online — cancel any pending remove debounce.
+            # Back online during debounce = a real re-seat. Must re-fire
+            # on_insert (otherwise path updates silently and the board stays
+            # EMPTY / stuck on the old identity).
+            returned: list[str] = []
             for slot_id in new_slots:
+                if slot_id in self._gone_since:
+                    returned.append(slot_id)
                 self._gone_since.pop(slot_id, None)
 
             for slot_id in sorted(old_slots - new_slots):
@@ -137,10 +142,23 @@ class LinuxBackend(HardwareBackend):
                 log.info("slot %s present at %s", slot_id, found[slot_id].path)
                 inserts.append(slot_id)
 
-            # Same slot, device node renamed — update path only
-            for slot_id in new_slots & old_slots:
-                self._present[slot_id] = found[slot_id]
-                self._dev_by_slot[slot_id] = found[slot_id].path
+            # Same slot still listed — update path; re-insert if media changed
+            # (capacity) or if it blinked away and came back during debounce.
+            for slot_id in sorted(new_slots & old_slots):
+                old = self._present[slot_id]
+                new = found[slot_id]
+                self._present[slot_id] = new
+                self._dev_by_slot[slot_id] = new.path
+                size_changed = old.size_bytes != new.size_bytes
+                if size_changed or slot_id in returned:
+                    log.info(
+                        "slot %s media change (size %s→%s, returned=%s) "
+                        "— re-identify",
+                        slot_id, old.size_bytes, new.size_bytes,
+                        slot_id in returned,
+                    )
+                    if slot_id not in inserts:
+                        inserts.append(slot_id)
 
         for slot_id in removals:
             try:
@@ -152,6 +170,39 @@ class LinuxBackend(HardwareBackend):
                 self._on_insert(slot_id)
             except Exception:
                 log.exception("on_insert(%s) failed", slot_id)
+
+    def hw_debug(self) -> dict:
+        """Live allowlist / presence snapshot for /api/debug/hw."""
+        from .sysfs import list_block_disks
+        disks = []
+        for d in list_block_disks(self._run):
+            mapped = self._path_to_slot.get(d.id_path)
+            disks.append({
+                "path": d.path,
+                "size_bytes": d.size_bytes,
+                "id_path": d.id_path,
+                "mapped_slot": mapped,
+                "allowlisted_active": (
+                    mapped is not None and d.size_bytes > 0
+                ),
+            })
+        with self._lock:
+            present = {
+                sid: {"path": dev.path, "size_bytes": dev.size_bytes}
+                for sid, dev in self._present.items()
+            }
+            gone = dict(self._gone_since)
+        return {
+            "disks": disks,
+            "present_slots": present,
+            "gone_since": {
+                sid: round(time.monotonic() - t, 1) for sid, t in gone.items()
+            },
+            "configured_slots": {
+                sid: {"id_path": cfg.id_path, "bridge": cfg.bridge}
+                for sid, cfg in self.slots.items()
+            },
+        }
 
     def _require_dev(self, slot_id: str) -> str:
         with self._lock:

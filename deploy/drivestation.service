@@ -16,9 +16,11 @@ Environment=DRIVESTATION_MODE=real
 ExecStart=@PY@ run.py
 Restart=always
 RestartSec=5
-; A wipe in flight must not be killed politely mid-write on shutdown either
-; way, but give dd a moment to flush.
-TimeoutStopSec=20
+; Never rush a mid-wipe kill — SIGKILL on dd has taken down the whole USB
+; hub tree. Prefer deploy/safe-restart.sh which refuses while WIPING.
+TimeoutStopSec=180
+KillMode=control-group
+SendSIGKILL=yes
 
 [Install]
 WantedBy=multi-user.target

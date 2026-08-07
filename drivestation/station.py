@@ -80,6 +80,9 @@ class Station:
         self._pending_wipes: dict[str, str] = self.joblog.load_pending_wipes()
         # Per-slot generation so a slow identify cannot overwrite a newer insert.
         self._check_gen: dict[str, int] = {}
+        # Active wipe threads — used so a stuck WIPING status cannot ignore
+        # inserts forever after the job is actually dead.
+        self._wipe_threads: dict[str, threading.Thread] = {}
         if self._pending_wipes:
             log.info("Restored %d pending wipe(s) from database",
                      len(self._pending_wipes))
@@ -107,13 +110,20 @@ class Station:
                 log.warning("Ignoring device on non-allowlisted slot %r", slot_id)
                 return
             # USB bridges re-enumerate mid-overwrite. Resetting the slot here
-            # aborts a live wipe with a fake "disconnected" failure.
+            # aborts a live wipe with a fake "disconnected" failure — but only
+            # while the wipe thread is actually alive.
             if slot.status in (SlotStatus.WIPING, SlotStatus.VERIFYING):
-                log.info(
-                    "Ignoring insert on %s during %s (USB re-enumerate)",
+                t = self._wipe_threads.get(slot_id)
+                if t is not None and t.is_alive():
+                    log.info(
+                        "Ignoring insert on %s during %s (USB re-enumerate)",
+                        slot_id, slot.status.value,
+                    )
+                    return
+                log.warning(
+                    "Slot %s status=%s but wipe thread dead — accepting insert",
                     slot_id, slot.status.value,
                 )
-                return
             gen = self._check_gen.get(slot_id, 0) + 1
             self._check_gen[slot_id] = gen
             slot.status = SlotStatus.DETECTED
@@ -281,10 +291,7 @@ class Station:
             if auto_start:
                 log.info("Auto-starting queued wipe for %s on %s (from %s)",
                          info.serial, slot_id, queued_from)
-                threading.Thread(
-                    target=self._wipe_job, args=(slot_id, info),
-                    name=f"wipe-{slot_id}", daemon=True,
-                ).start()
+                self._spawn_wipe(slot_id, info)
         except DriveDisconnected:
             pass  # removal event resets the slot
         except HardwareError as exc:
@@ -363,8 +370,25 @@ class Station:
                          bound.serial, slot_id)
                 return
             slot.awaiting_confirm = False
-        threading.Thread(target=self._wipe_job, args=(slot_id, bound),
-                         name=f"wipe-{slot_id}", daemon=True).start()
+        self._spawn_wipe(slot_id, bound)
+
+    def _spawn_wipe(self, slot_id: str, bound: DriveInfo) -> None:
+        t = threading.Thread(
+            target=self._wipe_job, args=(slot_id, bound),
+            name=f"wipe-{slot_id}", daemon=True,
+        )
+        self._wipe_threads[slot_id] = t
+        t.start()
+
+    def active_wipes(self) -> list[str]:
+        """Slot ids with a live wipe/verify thread (for safe-restart checks)."""
+        live = []
+        for slot_id, t in list(self._wipe_threads.items()):
+            if t.is_alive():
+                live.append(slot_id)
+            else:
+                self._wipe_threads.pop(slot_id, None)
+        return live
 
     def decline_wipe(self, slot_id: str) -> None:
         """Operator pressed NO/DONE. Clears a pending queue entry for this serial."""

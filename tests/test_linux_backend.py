@@ -87,6 +87,26 @@ def test_reconcile_insert_remove_and_ignore_rogue(tmp_path):
     backend._reconcile()
     assert ("out", "SATA-1") in events
 
+    # Re-seat during debounce must re-fire insert (not silent path update)
+    events.clear()
+    table.devices = [{
+        "name": "sdc", "size": 251_000_193_024,
+        "id_path": slots["SATA-1"].id_path,
+    }]
+    backend._reconcile()
+    assert ("in", "SATA-1") in events
+    events.clear()
+    # Blink away (start debounce) then return with different size → re-insert
+    table.devices = []
+    backend._reconcile()
+    assert "SATA-1" in backend._gone_since
+    table.devices = [{
+        "name": "sdc", "size": 500_107_862_016,
+        "id_path": slots["SATA-1"].id_path,
+    }]
+    backend._reconcile()
+    assert ("in", "SATA-1") in events
+
     # Rogue never maps
     events.clear()
     table.devices = [{
